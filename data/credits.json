@@ -88,5 +88,15 @@
   "license_url": "https://creativecommons.org/licenses/by-nc-sa/2.0/",
   "required_notice": "KELLY Russian word list (University of Leeds), CC BY-NC-SA 2.0.",
   "citation": "Kilgarriff, A., Charalabopoulou, F., Gavrilidou, M., et al. (2014). Corpus-based vocabulary lists for language learners for nine languages. Language Resources and Evaluation 48(1)."
+ },
+ {
+  "source_id": "tatoeba",
+  "name": "Tatoeba",
+  "version": "weekly export downloaded 2026-10-22",
+  "url": "https://tatoeba.org/",
+  "license": "CC BY 2.0 FR",
+  "license_url": "https://creativecommons.org/licenses/by/2.0/fr/",
+  "required_notice": "Example sentences and their translations from Tatoeba (https://tatoeba.org), licensed CC BY 2.0 FR. Each sentence shows its Tatoeba ID; see https://tatoeba.org/sentences/show/<ID> for author and history.",
+  "citation": "Tatoeba contributors. https://tatoeba.org"
  }
 ]

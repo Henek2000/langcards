@@ -7,7 +7,7 @@
    "stack": "noun",
    "file": "fr-A1-noun.json",
    "count": 626,
-   "hash": "fc3be902a7"
+   "hash": "be1d0a33cf"
   },
   {
    "lang": "fr",
@@ -15,7 +15,7 @@
    "stack": "verb",
    "file": "fr-A1-verb.json",
    "count": 260,
-   "hash": "d084928d4e"
+   "hash": "977f4bdfc1"
   },
   {
    "lang": "ru",
@@ -23,7 +23,7 @@
    "stack": "noun",
    "file": "ru-A1-noun.json",
    "count": 564,
-   "hash": "ea12e92590"
+   "hash": "cdd9f2c4d3"
   },
   {
    "lang": "ru",
@@ -31,7 +31,7 @@
    "stack": "verb",
    "file": "ru-A1-verb.json",
    "count": 149,
-   "hash": "a5cf26ca51"
+   "hash": "de79f66f38"
   }
  ]
 }

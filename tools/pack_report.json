@@ -8,7 +8,13 @@
   },
   "missing_spanish": 12,
   "missing_english": 14,
-  "bytes": 137802
+  "bytes": 396950,
+  "examples": {
+   "tatoeba": 612,
+   "tatoeba_both": 549,
+   "wikt_fallback": 3,
+   "no_example": 11
+  }
  },
  "fr-A1-verb.json": {
   "items": 260,
@@ -18,7 +24,13 @@
   },
   "missing_spanish": 2,
   "missing_english": 0,
-  "bytes": 61990
+  "bytes": 167683,
+  "examples": {
+   "tatoeba": 260,
+   "tatoeba_both": 251,
+   "wikt_fallback": 0,
+   "no_example": 0
+  }
  },
  "ru-A1-noun.json": {
   "items": 564,
@@ -30,7 +42,13 @@
   },
   "missing_spanish": 53,
   "missing_english": 11,
-  "bytes": 137484
+  "bytes": 395730,
+  "examples": {
+   "tatoeba": 562,
+   "tatoeba_both": 513,
+   "wikt_fallback": 0,
+   "no_example": 2
+  }
  },
  "ru-A1-verb.json": {
   "items": 149,
@@ -40,6 +58,12 @@
   },
   "missing_spanish": 28,
   "missing_english": 0,
-  "bytes": 42628
+  "bytes": 109739,
+  "examples": {
+   "tatoeba": 149,
+   "tatoeba_both": 147,
+   "wikt_fallback": 0,
+   "no_example": 0
+  }
  }
 }

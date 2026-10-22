@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Generate flashcard packs from langdb.sqlite. Every word, gloss, translation and example
-comes from the database (Wiktionary / CEFR lists); this script only selects and formats."""
+comes from the database (Wiktionary / CEFR lists) or verbatim from Tatoeba; this script only selects and formats."""
 import sqlite3, json, re, os, sys, hashlib, unicodedata
 from collections import Counter, defaultdict
 DB = sys.argv[1] if len(sys.argv) > 1 else '/workspace/langdb/langdb.sqlite'
@@ -10,6 +10,9 @@ LEVEL_SOURCES = {'fr': ['FLELex TT-Beacco'], 'ru': ['SMARTool data-rus-eng', 'KE
 MAX_TR = 3; MAX_EX_LEN = 120
 db = sqlite3.connect(DB); db.row_factory = sqlite3.Row
 q = lambda s, *a: db.execute(s, a).fetchall()
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from tatoeba import Examples
+TATO = {}
 
 
 def head_info(lang, rec, pos):
@@ -113,13 +116,20 @@ def build(lang, stack):
             gender = {'masculine': 'm', 'feminine': 'f', 'neuter': 'n'}.get(g or '', 'mf' if g and ',' in g else None)
         art = None
         if lang == 'fr' and stack == 'noun' and gender in ('m', 'f'): art = 'un' if gender == 'm' else 'une'
-        ex = pick_example(cd['lemma_id'])
+        tx = TATO[lang].pick(word, stack, cd['lemma_id'], 3, es, en)
+        for e in tx: e.pop('h', None)
+        ex = None if tx else pick_example(cd['lemma_id'])   # Wiktionary example only as fallback
+        if tx: stats['tatoeba'] += 1
+        if any('es' in e and 'en' in e for e in tx): stats['tatoeba_both'] += 1
+        if ex: stats['wikt_fallback'] += 1
+        if not tx and not ex: stats['no_example'] += 1
         iid = f"{lang}-{stack}-{word}"
         item = {'id': iid, 'w': word, 'd': disp}
         if art: item['a'] = art
         if gender: item['g'] = gender
         if aspect: item['asp'] = aspect
         item.update({'es': es, 'en': en, 'def': glosses[0]})
+        if tx: item['x'] = tx
         if ex: item['ex'] = ex
         item['lv'] = sorted({c['source_id'] for c in cs})
         item['k'] = cd['source_key'].rsplit('|', 1)[0]
@@ -133,17 +143,23 @@ if __name__ == '__main__':
     raw_entry = lambda lang, key: json.loads(LINES[lang][int(key.rsplit('|', 1)[1])])
     os.makedirs(OUT, exist_ok=True); index = {'generated_from': 'langdb.sqlite', 'packs': []}; report = {}
     for lang in ['fr', 'ru']:
+        TATO[lang] = Examples(lang, sqlite3.connect(DB), LEVEL_SOURCES[lang])
         for stack in ['noun', 'verb']:
             items, dropped, stats = build(lang, stack)
             fn = f'{lang}-A1-{stack}.json'
             body = json.dumps({'lang': lang, 'level': 'A1', 'stack': stack, 'items': items}, ensure_ascii=False, separators=(',', ':'))
             open(os.path.join(OUT, fn), 'w', encoding='utf-8').write(body)
             index['packs'].append({'lang': lang, 'level': 'A1', 'stack': stack, 'file': fn, 'count': len(items), 'hash': hashlib.sha1(body.encode()).hexdigest()[:10]})
-            report[fn] = {'items': len(items), 'cefr_words': stats['cefr_words'], 'dropped': dict(dropped), 'missing_spanish': stats['no_spanish'], 'missing_english': stats['no_english'], 'bytes': len(body.encode())}
+            report[fn] = {'items': len(items), 'cefr_words': stats['cefr_words'], 'dropped': dict(dropped), 'missing_spanish': stats['no_spanish'], 'missing_english': stats['no_english'], 'bytes': len(body.encode()),
+                       'examples': {k: stats[k] for k in ('tatoeba', 'tatoeba_both', 'wikt_fallback', 'no_example')}}
             print(fn, report[fn])
     cr = [dict(r) for r in q("""SELECT s.source_id, s.name, s.version, s.url, s.license, s.license_url, a.required_notice, a.citation
                                 FROM sources s JOIN attributions a USING(source_id)
                                 WHERE s.source_id IN ('enwikt','frwikt','eswikt','ruwikt','nlwikt','FLELex TT-Beacco','SMARTool data-rus-eng','KELLY Russian (ru_m3)','omw')""")]
+    cr.append({'source_id': 'tatoeba', 'name': 'Tatoeba', 'version': 'weekly export downloaded ' + __import__('time').strftime('%Y-%m-%d', __import__('time').localtime(os.path.getmtime('/workspace/langdb/tatoeba/fra_sentences_detailed.tsv.bz2'))),
+               'url': 'https://tatoeba.org/', 'license': 'CC BY 2.0 FR', 'license_url': 'https://creativecommons.org/licenses/by/2.0/fr/',
+               'required_notice': 'Example sentences and their translations from Tatoeba (https://tatoeba.org), licensed CC BY 2.0 FR. Each sentence shows its Tatoeba ID; see https://tatoeba.org/sentences/show/<ID> for author and history.',
+               'citation': 'Tatoeba contributors. https://tatoeba.org'})
     json.dump(cr, open(os.path.join(OUT, 'credits.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     json.dump(index, open(os.path.join(OUT, 'index.json'), 'w'), indent=1)
     json.dump(report, open(os.path.join(OUT, '..', 'tools', 'pack_report.json'), 'w'), ensure_ascii=False, indent=1)

@@ -12,6 +12,9 @@ The data was generated automatically from these sources and keeps their licences
   Licence: CC BY-NC-SA 2.0, https://creativecommons.org/licenses/by-nc-sa/2.0/
 - SMARTool data-rus-eng (UiT The Arctic University of Norway). Russian CEFR levels.
   Licence: CC BY 4.0, https://creativecommons.org/licenses/by/4.0/
+- Tatoeba (https://tatoeba.org), weekly exports. Example sentences and their Spanish/English translations;
+  each sentence carries its Tatoeba ID (https://tatoeba.org/sentences/show/<ID>).
+  Licence: CC BY 2.0 FR, https://creativecommons.org/licenses/by/2.0/fr/
 - Open Multilingual Wordnet 1.4. Used only to score translation reliability.
   Licences: WordNet 3.0 licence, CeCILL-C, CC BY 3.0 and CC BY-SA 4.0 (one per wordnet).
 
