@@ -1,0 +1,92 @@
+[
+ {
+  "source_id": "enwikt",
+  "name": "English Wiktionary (Wiktextract extraction, kaikki.org)",
+  "version": "enwiktionary dump 2026-09-02",
+  "url": "https://kaikki.org/dictionary/",
+  "license": "CC BY-SA 4.0 (and GFDL)",
+  "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+  "required_notice": "Contains material from English Wiktionary (https://en.wiktionary.org), CC BY-SA 4.0, extracted with Wiktextract via kaikki.org.",
+  "citation": "Ylonen, T. (2022). Wiktextract: Wiktionary as Machine-Readable Structured Data. LREC 2022."
+ },
+ {
+  "source_id": "frwikt",
+  "name": "French Wiktionary / Wiktionnaire (Wiktextract)",
+  "version": "kaikki.org fr-extract 2026-10",
+  "url": "https://kaikki.org/dictionary/rawdata.html",
+  "license": "CC BY-SA 4.0 (and GFDL)",
+  "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+  "required_notice": "Contains material from Wiktionnaire (https://fr.wiktionary.org), CC BY-SA 4.0.",
+  "citation": ""
+ },
+ {
+  "source_id": "eswikt",
+  "name": "Spanish Wiktionary / Wikcionario (Wiktextract)",
+  "version": "kaikki.org es-extract 2026-10",
+  "url": "https://kaikki.org/dictionary/rawdata.html",
+  "license": "CC BY-SA 4.0 (and GFDL)",
+  "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+  "required_notice": "Contains material from Wikcionario (https://es.wiktionary.org), CC BY-SA 4.0.",
+  "citation": ""
+ },
+ {
+  "source_id": "ruwikt",
+  "name": "Russian Wiktionary / Викисловарь (Wiktextract)",
+  "version": "kaikki.org ru-extract 2026-10",
+  "url": "https://kaikki.org/dictionary/rawdata.html",
+  "license": "CC BY-SA 4.0 (and GFDL)",
+  "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+  "required_notice": "Contains material from Викисловарь (https://ru.wiktionary.org), CC BY-SA 4.0.",
+  "citation": ""
+ },
+ {
+  "source_id": "nlwikt",
+  "name": "Dutch Wiktionary / WikiWoordenboek (Wiktextract)",
+  "version": "kaikki.org nl-extract 2026-10",
+  "url": "https://kaikki.org/dictionary/rawdata.html",
+  "license": "CC BY-SA 4.0 (and GFDL)",
+  "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+  "required_notice": "Contains material from WikiWoordenboek (https://nl.wiktionary.org), CC BY-SA 4.0.",
+  "citation": ""
+ },
+ {
+  "source_id": "omw",
+  "name": "Open Multilingual Wordnet 1.4 (omw-en, omw-fr WOLF, omw-es MCR, omw-nl ODWN)",
+  "version": "1.4",
+  "url": "https://github.com/omwn/omw-data",
+  "license": "WordNet 3.0 licence; CeCILL-C (WOLF); CC BY 3.0 (MCR); CC BY-SA 4.0 (ODWN)",
+  "license_url": "https://omwn.org/",
+  "required_notice": "WordNet 3.0 Copyright 2006 by Princeton University. Includes WOLF (CeCILL-C), Multilingual Central Repository (CC BY 3.0), Open Dutch WordNet (CC BY-SA 4.0), via Open Multilingual Wordnet.",
+  "citation": "Bond, F. & Foster, R. (2013). Linking and extending an open multilingual wordnet. ACL 2013."
+ },
+ {
+  "source_id": "FLELex TT-Beacco",
+  "name": "FLELex (TreeTagger, Beacco levels)",
+  "version": "2020",
+  "url": "https://cental.uclouvain.be/cefrlex/flelex/download/",
+  "license": "CC BY-NC-SA 4.0",
+  "license_url": "https://creativecommons.org/licenses/by-nc-sa/4.0/",
+  "required_notice": "FLELex (CENTAL, UCLouvain), CC BY-NC-SA 4.0.",
+  "citation": "Francois, T., Gala, N., Watrin, P. & Fairon, C. (2014). FLELex: a graded lexical resource for French foreign learners. LREC 2014. Pintard, A. & Francois, T. (2020). Combining expert knowledge with frequency information to infer CEFR levels for words. READI 2020."
+ },
+ {
+  "source_id": "SMARTool data-rus-eng",
+  "name": "SMARTool Russian vocabulary A1-B2",
+  "version": "git HEAD 2026-10-22",
+  "url": "https://github.com/smartool/data-rus-eng",
+  "license": "CC BY 4.0",
+  "license_url": "https://creativecommons.org/licenses/by/4.0/",
+  "required_notice": "SMARTool data-rus-eng, CC BY 4.0.",
+  "citation": "Janda, L. A. et al. SMARTool: Strategic Mastery of Russian Tool. https://smartool.github.io/smartool-rus-eng/"
+ },
+ {
+  "source_id": "KELLY Russian (ru_m3)",
+  "name": "KELLY project Russian list",
+  "version": "ru_m3.xls",
+  "url": "https://ssharoff.github.io/kelly/",
+  "license": "CC BY-NC-SA 2.0",
+  "license_url": "https://creativecommons.org/licenses/by-nc-sa/2.0/",
+  "required_notice": "KELLY Russian word list (University of Leeds), CC BY-NC-SA 2.0.",
+  "citation": "Kilgarriff, A., Charalabopoulou, F., Gavrilidou, M., et al. (2014). Corpus-based vocabulary lists for language learners for nine languages. Language Resources and Evaluation 48(1)."
+ }
+]

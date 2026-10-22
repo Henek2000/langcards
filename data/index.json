@@ -1,0 +1,37 @@
+{
+ "generated_from": "langdb.sqlite",
+ "packs": [
+  {
+   "lang": "fr",
+   "level": "A1",
+   "stack": "noun",
+   "file": "fr-A1-noun.json",
+   "count": 626,
+   "hash": "fc3be902a7"
+  },
+  {
+   "lang": "fr",
+   "level": "A1",
+   "stack": "verb",
+   "file": "fr-A1-verb.json",
+   "count": 260,
+   "hash": "d084928d4e"
+  },
+  {
+   "lang": "ru",
+   "level": "A1",
+   "stack": "noun",
+   "file": "ru-A1-noun.json",
+   "count": 564,
+   "hash": "ea12e92590"
+  },
+  {
+   "lang": "ru",
+   "level": "A1",
+   "stack": "verb",
+   "file": "ru-A1-verb.json",
+   "count": 149,
+   "hash": "a5cf26ca51"
+  }
+ ]
+}

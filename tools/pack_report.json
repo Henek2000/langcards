@@ -1,0 +1,45 @@
+{
+ "fr-A1-noun.json": {
+  "items": 626,
+  "cefr_words": 631,
+  "dropped": {
+   "no lemma with the CEFR list POS": 4,
+   "no English definition": 1
+  },
+  "missing_spanish": 12,
+  "missing_english": 14,
+  "bytes": 137802
+ },
+ "fr-A1-verb.json": {
+  "items": 260,
+  "cefr_words": 262,
+  "dropped": {
+   "no reliable es/en translation": 2
+  },
+  "missing_spanish": 2,
+  "missing_english": 0,
+  "bytes": 61990
+ },
+ "ru-A1-noun.json": {
+  "items": 564,
+  "cefr_words": 573,
+  "dropped": {
+   "no English definition": 3,
+   "no lemma with the CEFR list POS": 2,
+   "no reliable es/en translation": 4
+  },
+  "missing_spanish": 53,
+  "missing_english": 11,
+  "bytes": 137484
+ },
+ "ru-A1-verb.json": {
+  "items": 149,
+  "cefr_words": 150,
+  "dropped": {
+   "no reliable es/en translation": 1
+  },
+  "missing_spanish": 28,
+  "missing_english": 0,
+  "bytes": 42628
+ }
+}
