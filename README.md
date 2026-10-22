@@ -1,5 +1,7 @@
 # Flashcards: French & Russian (PWA)
 
+Live at https://henek2000.github.io/langcards/. It is deployed by `.github/workflows/pages.yml` on every push to `main`.
+
 This is an installable, offline-first flashcard app for learning French and Russian A1 vocabulary, with Spanish and English translations. It consists of static files only, so it can be hosted on GitHub Pages under any subpath (all paths are relative).
 
 ## Use
@@ -17,3 +19,14 @@ This is an installable, offline-first flashcard app for learning French and Russ
 2. Optionally bump `VERSION`.
 3. Run `python3 tools/stamp.py`. It writes `js/version.js` and `sw.js`, with a version + content-hash cache name and the precache list.
 4. Commit and push. Installed apps check for a new service worker on launch, every 30 minutes and whenever the app comes back to the foreground. The new version activates right away. On menu screens the app reloads and shows an "Updated to vX" toast; in the middle of a session it offers a Reload button instead.
+
+## Data credits and licences
+| Source | Used for | Licence |
+|---|---|---|
+| English / French / Spanish / Russian Wiktionary (via [Wiktextract](https://github.com/tatuylonen/wiktextract) / [kaikki.org](https://kaikki.org)) | words, gender, stress marks, English definitions, translations, examples | CC BY-SA 4.0 |
+| [FLELex](https://cental.uclouvain.be/cefrlex/flelex/) (François et al. 2014; Pintard & François 2020) | French A1 word list | CC BY-NC-SA 4.0 |
+| [SMARTool data-rus-eng](https://github.com/smartool/data-rus-eng) (UiT) | Russian A1 word list | CC BY 4.0 |
+| [KELLY Russian list](https://ssharoff.github.io/kelly/) (Kilgarriff et al. 2014) | Russian A1 word list | CC BY-NC-SA 2.0 |
+| [Open Multilingual Wordnet 1.4](https://omwn.org/) | translation reliability scoring only | WordNet licence / CeCILL-C / CC BY 3.0 / CC BY-SA 4.0 |
+
+Because of the NC sources, the data in `data/` is for **non-commercial use** under CC BY-NC-SA. See `LICENSE`.

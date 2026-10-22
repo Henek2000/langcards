@@ -1,0 +1,22 @@
+LICENSING NOTE
+
+1. Data (data/*.json): words, definitions, translations and example sentences
+
+The data was generated automatically from these sources and keeps their licences:
+
+- English, French, Spanish and Russian Wiktionary, via Wiktextract / kaikki.org.
+  Licence: Creative Commons Attribution-ShareAlike 4.0 (CC BY-SA 4.0), https://creativecommons.org/licenses/by-sa/4.0/
+- FLELex (CENTAL, UCLouvain). French CEFR levels.
+  Licence: CC BY-NC-SA 4.0, https://creativecommons.org/licenses/by-nc-sa/4.0/
+- KELLY Russian word list (University of Leeds). Russian CEFR levels.
+  Licence: CC BY-NC-SA 2.0, https://creativecommons.org/licenses/by-nc-sa/2.0/
+- SMARTool data-rus-eng (UiT The Arctic University of Norway). Russian CEFR levels.
+  Licence: CC BY 4.0, https://creativecommons.org/licenses/by/4.0/
+- Open Multilingual Wordnet 1.4. Used only to score translation reliability.
+  Licences: WordNet 3.0 licence, CeCILL-C, CC BY 3.0 and CC BY-SA 4.0 (one per wordnet).
+
+The compiled data set is therefore distributed under CC BY-NC-SA 4.0: attribution required, non-commercial use only, and adaptations must be shared under the same terms. The individual Wiktionary-derived parts also remain available under CC BY-SA 4.0. Full attributions and citations are in data/credits.json and on the app's About screen.
+
+2. Application code (HTML, CSS, JavaScript, tools/)
+
+Copyright (c) 2026 Henek. No open-source licence has been chosen for the code yet. Add one here (for example MIT) if you want to allow reuse.

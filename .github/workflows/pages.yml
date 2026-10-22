@@ -1,0 +1,43 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble static site (only shipped files)
+        run: |
+          mkdir -p _site
+          cp -r index.html manifest.webmanifest sw.js .nojekyll css js data icons LICENSE _site/
+          # sanity: every precached asset in sw.js must exist in the artifact
+          python3 - <<'PY'
+          import json, re, pathlib
+          sw = pathlib.Path('_site/sw.js').read_text()
+          assets = json.loads(re.search(r'const ASSETS = (\[.*?\]);', sw, re.S).group(1))
+          missing = [a for a in assets if a != './' and not pathlib.Path('_site', a).exists()]
+          assert not missing, f'missing precached files: {missing}'
+          print(len(assets), 'precached assets present')
+          PY
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
