@@ -96,7 +96,7 @@
   "url": "https://tatoeba.org/",
   "license": "CC BY 2.0 FR",
   "license_url": "https://creativecommons.org/licenses/by/2.0/fr/",
-  "required_notice": "Example sentences and their translations from Tatoeba (https://tatoeba.org), licensed CC BY 2.0 FR. Each sentence shows its Tatoeba ID; see https://tatoeba.org/sentences/show/<ID> for author and history.",
+  "required_notice": "Example sentences and their translations from Tatoeba (https://tatoeba.org), licensed CC BY 2.0 FR. Sentence IDs and authors are listed on the About screen and stored with each card in data/*.json (fields id, by); see https://tatoeba.org/sentences/show/<ID> for history.",
   "citation": "Tatoeba contributors. https://tatoeba.org"
  }
 ]

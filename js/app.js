@@ -1,6 +1,7 @@
 import { recordReview, undoReview, wordStats, allWords, allEvents, countEvents, clearAll } from './db.js';
 import { order } from './deck.js';
 import { APP_VERSION } from './version.js';
+import { getShortcuts, isPinned, togglePin, removeShortcut, deckKey } from './shortcuts.js';
 
 const LANGS = { fr: { name: 'French', native: 'Français', flag: '🇫🇷' }, ru: { name: 'Russian', native: 'Русский', flag: '🇷🇺' } };
 const LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
@@ -35,18 +36,46 @@ const routes = [
   [/^#\/stats$/, statsScreen],
   [/^#\/about$/, about],
 ];
-let cleanup = null;
+let cleanup = null, prevHash = null, curHash = null;
 async function render() {
   if (cleanup) { cleanup(); cleanup = null; }
   const hash = location.hash || '#/';
+  if (hash !== curHash) { prevHash = curHash; curHash = hash; }
   for (const [re, fn] of routes) { const m = hash.match(re); if (m) { $view.replaceChildren(); await fn(...m.slice(1)); return; } }
   location.hash = '#/';
 }
 window.addEventListener('hashchange', render);
 
+// ---------------- home shortcuts (pinned decks); long-press a tile to edit, × removes
+function shortcutTile(sc, editing, rerender) {
+  const d = deckInfo(sc);
+  if (!d) return null;
+  let timer = null, long = false;
+  const tile = h('a', { class: 'tile', href: editing ? null : d.route, 'data-test': `shortcut-${deckKey(sc)}`, title: d.label },
+    h('span', { class: 'ico' }, d.flag), h('span', { class: 'lbl' }, d.line1, h('b', {}, d.line2)),
+    editing ? h('button', { class: 'rm', 'aria-label': `Remove ${d.label}`, 'data-test': `rm-${deckKey(sc)}`,
+      onclick: e => { e.preventDefault(); e.stopPropagation(); removeShortcut(sc); rerender(getShortcuts().length > 0); } }, '×') : null);
+  tile.addEventListener('pointerdown', () => { long = false; clearTimeout(timer); timer = setTimeout(() => { long = true; rerender(true); }, 550); });
+  for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) tile.addEventListener(ev, () => clearTimeout(timer));
+  tile.addEventListener('click', e => { if (long || editing) e.preventDefault(); });
+  tile.addEventListener('contextmenu', e => e.preventDefault());
+  return tile;
+}
+function shortcutsEl() {
+  const box = h('div', { class: 'shortcuts', 'data-test': 'shortcuts' });
+  const draw = editing => {
+    const scs = getShortcuts();
+    box.classList.toggle('editing', editing);
+    box.replaceChildren(...scs.map(sc => shortcutTile(sc, editing, draw)).filter(Boolean),
+      editing ? h('button', { class: 'tile add done', 'data-test': 'shortcuts-done', onclick: () => draw(false) }, '✓')
+        : h('a', { class: 'tile add', href: '#/fc', 'aria-label': 'Add shortcut', 'data-test': 'shortcut-add' }, '+'));
+  };
+  draw(false);
+  return box;
+}
 function menu() {
   setTitle('Flashcards', null);
-  $view.append(h('div', { class: 'list' },
+  $view.append(shortcutsEl(), h('div', { class: 'list' },
     h('a', { class: 'item', href: '#/fc', 'data-test': 'menu-flashcards' }, h('span', { class: 'ico' }, '🃏'),
       h('span', { class: 'grow' }, 'Flashcards', h('span', { class: 'sub' }, 'French & Russian vocabulary, Spanish + English'))),
     h('button', { class: 'item', disabled: true }, h('span', { class: 'ico' }, '🎧'), h('span', { class: 'grow' }, 'Listening', h('span', { class: 'sub' }, 'Future feature')), h('span', { class: 'badge' }, 'coming soon')),
@@ -79,10 +108,21 @@ async function chooseStack(lang, lv) {
     if (!p) continue;
     const ws = await wordStats(`${lang}-${lv}-${k}`);
     const known = ws.filter(w => w.lastResult === 'knew').length;
+    const sc = { kind: 'stack', lang, level: lv, stack: k };
+    const pin = h('button', { class: 'pin', 'aria-label': 'Pin to home', 'aria-pressed': String(isPinned(sc)), 'data-test': `pin-${k}`,
+      onclick: e => { e.preventDefault(); e.stopPropagation(); pin.setAttribute('aria-pressed', String(togglePin(sc))); } }, '★');
     list.append(h('a', { class: 'item', href: `#/fc/${lang}/${lv}/${k}`, 'data-test': `stack-${k}` }, h('span', { class: 'ico' }, s.ico),
-      h('span', { class: 'grow' }, s.name, h('span', { class: 'sub' }, `${p.count} cards · ${ws.length} seen · ${known} known`))));
+      h('span', { class: 'grow' }, s.name, h('span', { class: 'sub' }, `${p.count} cards · ${ws.length} seen · ${known} known`)), pin));
   }
   $view.append(list);
+}
+
+// deck descriptors: {kind:'stack', lang, level, stack}; future: {kind:'topic', lang, topic}
+function deckInfo(sc) {
+  if (sc.kind === 'stack' && LANGS[sc.lang] && STACKS[sc.stack])
+    return { route: `#/fc/${sc.lang}/${sc.level}/${sc.stack}`, flag: LANGS[sc.lang].flag, line1: `${LANGS[sc.lang].name} ${sc.level}`, line2: STACKS[sc.stack].name,
+      label: `${LANGS[sc.lang].name} ${sc.level} ${STACKS[sc.stack].name.toLowerCase()}` };
+  return null;   // unknown kinds (e.g. from a newer version) are kept in storage but not shown
 }
 
 // ---------------- card rendering
@@ -95,17 +135,17 @@ function exampleEl(it, lang) {
   const xs = it.x || [];
   if (!xs.length) {   // Wiktionary example, only when Tatoeba has none
     return it.ex ? h('div', { class: 'ex', 'data-test': 'example', 'data-src': 'wiktionary' }, h('span', { class: 's', lang }, it.ex[0]),
-      it.ex[1] ? h('span', { class: 't', lang: 'en' }, it.ex[1]) : null, h('span', { class: 'src' }, 'Wiktionary')) : null;
+      it.ex[1] ? h('span', { class: 't', lang: 'en' }, it.ex[1]) : null) : null;
   }
   const box = h('div', { class: 'ex', 'data-test': 'example', 'data-src': 'tatoeba' });
   let k = 0;
   const draw = () => {
     const x = xs[k];
     box.dataset.idx = k;
-    box.replaceChildren(h('span', { class: 's', lang }, x.t),
+    box.replaceChildren(...[h('span', { class: 's', lang }, x.t),
       x.es ? h('span', { class: 't', lang: 'es' }, x.es[0]) : null,
       x.en ? h('span', { class: 't', lang: 'en' }, x.en[0]) : null,
-      h('span', { class: 'src' }, `Tatoeba #${x.id}${x.by ? ' · ' + x.by : ''} · CC BY 2.0 FR`, xs.length > 1 ? h('b', { class: 'cyc' }, ` ${k + 1}/${xs.length} ›`) : null));
+      xs.length > 1 ? h('span', { class: 'cyc', 'data-test': 'ex-count' }, `${k + 1}/${xs.length}`) : null].filter(Boolean));   // a missing translation is skipped, never printed as "null"
   };
   box.cycle = () => { if (xs.length < 2) return false; k = (k + 1) % xs.length; draw(); return true; };
   draw();
@@ -120,8 +160,7 @@ function back(it, lang) {
     h('h3', {}, 'Español'), h('p', { class: 'tr', lang: 'es', 'data-test': 'tr-es' }, it.es.length ? it.es.join(', ') : '—'),
     h('h3', {}, 'English'), h('p', { class: 'tr', lang: 'en', 'data-test': 'tr-en' }, it.en.length ? it.en.join(', ') : '—'),
     it.def ? h('p', { class: 'def', lang: 'en' }, it.def) : null,
-    exampleEl(it, lang),
-    h('div', { class: 'small' }, `Level: ${it.lv.join(', ')} · Wiktionary: ${it.k.split('|')[0]}`));
+    exampleEl(it, lang));
 }
 function cardEl(it, lang) {
   return h('div', { class: 'card', 'data-id': it.id }, h('div', { class: 'stamp yes' }, 'KNEW'), h('div', { class: 'stamp no' }, 'NOPE'),
@@ -131,7 +170,7 @@ function cardEl(it, lang) {
 // ---------------- session (swipe right = knew, left = didn't, tap = flip; ↶ undo in the top bar)
 async function session(lang, lv, stack) {
   const meta = (await getIndex()).packs.find(p => p.lang === lang && p.level === lv && p.stack === stack);
-  setTitle(`${LANGS[lang].name} ${lv} · ${STACKS[stack].name}`, `#/fc/${lang}/${lv}`);
+  setTitle(`${LANGS[lang].name} ${lv} · ${STACKS[stack].name}`, prevHash === '#/' ? '#/' : `#/fc/${lang}/${lv}`);
   const pack = await getPack(meta.file);
   const stats = Object.fromEntries((await wordStats(`${lang}-${lv}-${stack}`)).map(s => [s.id, s]));
   const deck = order(pack.items, stats);
@@ -271,13 +310,30 @@ async function about() {
   const credits = await (await fetch('data/credits.json')).json();
   const idx = await getIndex();
   $view.append(h('div', { class: 'panel credits' }, h('h2', {}, 'About'),
-      h('p', {}, 'Every word, definition, translation and example sentence in this app comes from the open datasets below. Nothing was written by hand. Cards were picked automatically from the CEFR A1 lists; translations are limited to direct or multi-source links. Example sentences are chosen automatically from Tatoeba (short, simple sentences with Spanish/English translations, shown with their Tatoeba ID); Wiktionary examples are used only where Tatoeba has none.'),
+      h('p', {}, 'Every word, definition, translation and example sentence in this app comes from the open datasets below. Nothing was written by hand. Cards were picked automatically from the CEFR A1 lists; translations are limited to direct or multi-source links. Example sentences are chosen automatically from Tatoeba (short, simple sentences with Spanish/English translations); Wiktionary examples are used only where Tatoeba has none. The Tatoeba ID and author of every example sentence are listed below.'),
       h('p', {}, `Packs: ${idx.packs.map(p => `${p.file} (${p.count})`).join(', ')}.`),
       h('p', {}, 'For personal, non-commercial use. Share-alike licences apply to the data.')),
     ...credits.map(c => h('div', { class: 'panel credits' }, h('h2', {}, c.name),
       h('p', {}, c.required_notice), c.citation ? h('p', {}, c.citation) : null,
       h('p', {}, 'Licence: ', c.license_url ? h('a', { href: c.license_url, target: '_blank', rel: 'noopener' }, c.license) : c.license,
-        c.url ? [' · ', h('a', { href: c.url, target: '_blank', rel: 'noopener' }, 'source')] : null))));
+        c.url ? [' · ', h('a', { href: c.url, target: '_blank', rel: 'noopener' }, 'source')] : null),
+      c.source_id === 'tatoeba' ? sentenceCredits(idx) : null)));
+}
+function sentenceCredits(idx) {
+  // CC BY 2.0 FR attribution for every Tatoeba sentence used on the cards (built when opened)
+  return idx.packs.map(p => {
+    const d = h('details', { 'data-test': `credits-${p.file}` }, h('summary', {}, `Sentences in ${LANGS[p.lang].name} ${p.level} ${STACKS[p.stack].name.toLowerCase()}`));
+    d.addEventListener('toggle', async () => {
+      if (!d.open || d.dataset.done) return; d.dataset.done = '1';
+      const rows = [];
+      for (const it of (await getPack(p.file)).items) for (const x of it.x || []) {
+        const link = id => h('a', { href: `https://tatoeba.org/sentences/show/${id}`, target: '_blank', rel: 'noopener' }, `#${id}`);
+        rows.push(h('li', {}, link(x.id), x.by ? ` ${x.by}` : '', x.es ? [' · es ', link(x.es[1])] : null, x.en ? [' · en ', link(x.en[1])] : null));
+      }
+      d.append(h('ul', { class: 'sent-credits' }, rows));
+    });
+    return d;
+  });
 }
 
 // ---------------- toast + service worker auto-update

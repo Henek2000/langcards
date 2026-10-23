@@ -1,10 +1,10 @@
-// Phone-viewport e2e for langcards 0.2.x. Starts on the OLD deployed build (OLD_DIR), records reviews there,
+// Phone-viewport e2e for langcards 0.3.x. Starts on the OLD deployed build (OLD_DIR), records reviews there,
 // swaps in the NEW build (NEW_DIR) under the same URL and checks the auto-update, then tests the new UI.
 import { chromium } from 'playwright-core';
 import fs from 'fs';
 import { execSync } from 'child_process';
 const BASE = process.env.BASE || 'http://localhost:8081/langcards/', SITE = process.env.SITE_DIR || '/workspace/ghp-site/langcards';
-const OLD_DIR = process.env.OLD_DIR, NEW_DIR = process.env.NEW_DIR || '/workspace/langapp', SHOTS = '/workspace/langapp/shots/';
+const OLD_DIR = process.env.OLD_DIR, NEW_DIR = process.env.NEW_DIR || '/workspace/langapp', SHOTS = process.env.SHOTS || '/workspace/langapp/shots/';
 const EXPECT = fs.readFileSync(NEW_DIR + '/VERSION', 'utf8').trim();
 const results = []; const ok = (name, cond, extra = '') => { results.push({ name, pass: !!cond, extra }); console.log(cond ? 'PASS' : 'FAIL', name, extra); };
 const assemble = dir => execSync(`/workspace/langapp-test/assemble.sh ${dir} ${SITE}`);
@@ -14,7 +14,7 @@ const ctx = await chromium.launchPersistentContext('/tmp/langapp-profile', { exe
 const page = ctx.pages()[0] || await ctx.newPage();
 const errors = []; page.on('pageerror', e => errors.push(String(e))); page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
 const shot = async n => page.screenshot({ path: SHOTS + n + '.png' });
-const idbAll = store => page.evaluate(s => new Promise(r => { const q = indexedDB.open('langapp'); q.onsuccess = () => { const t = q.result.transaction(s).objectStore(s).getAll(); t.onsuccess = () => r(t.result); }; }), store);
+const idbAll = store => page.evaluate(async s => (await indexedDB.databases()).some(d => d.name === 'langapp') ? new Promise(r => { const q = indexedDB.open('langapp'); q.onsuccess = () => { const t = q.result.transaction(s).objectStore(s).getAll(); t.onsuccess = () => r(t.result); }; }) : [], store);
 const cdp = await ctx.newCDPSession(page);
 const curCard = () => page.locator('.card:not(.next)');
 async function touchSwipe(dir, dy = 0) {
@@ -49,7 +49,7 @@ if (OLD_DIR) {
   await page.goto(BASE + '#/fc/fr/A1/verb'); await page.waitForSelector('.card:not(.next)'); await page.waitForTimeout(300);
   await touchSwipe(1); await touchSwipe(-1);
   await page.goto(BASE); await page.waitForSelector('[data-test=menu-flashcards]');
-  ok('old build running with 2 reviews recorded', vOld.includes('1.0.0+') && (await idbAll('events')).length === 2, vOld);
+  ok('old build running with 2 reviews recorded', /^Version \d+\.\d+\.\d+$/.test(vOld) && vOld !== `Version ${EXPECT}` && (await idbAll('events')).length === 2, vOld);
   // ---------- 2. deploy new build at the same URL; app must pick it up by itself
   assemble(NEW_DIR);
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
@@ -88,7 +88,16 @@ const fs1 = await curCard().locator('[data-test=tr-es]').evaluate(e => { const s
 const fs2 = await curCard().locator('[data-test=tr-en]').evaluate(e => { const s = getComputedStyle(e); return [s.fontSize, s.fontWeight, s.fontFamily]; });
 ok('Spanish and English translations have equal size and weight', JSON.stringify(fs1) === JSON.stringify(fs2), JSON.stringify(fs1) + ' vs ' + JSON.stringify(fs2));
 const exTxt = await curCard().locator('[data-test=example] .s').innerText().catch(() => null);
-ok('best Tatoeba example rendered on the back', it.x ? exTxt === it.x[0].t && (await curCard().locator('[data-test=example]').innerText()).includes(`Tatoeba #${it.x[0].id}`) : true, exTxt);
+ok('best Tatoeba example rendered on the back', it.x ? exTxt === it.x[0].t : true, exTxt);
+const backTxt = await curCard().locator('.back-face').innerText();
+ok('no source/attribution line under the example', !/Tatoeba|CC BY|Wiktionary/.test(backTxt) && await curCard().locator('.ex .src').count() === 0, backTxt.slice(-120));
+const nullHits = await page.evaluate(async () => { let n = 0; for (const f of ['fr-A1-noun.json', 'fr-A1-verb.json', 'ru-A1-noun.json', 'ru-A1-verb.json']) n += (await (await fetch('data/' + f)).json()).items.filter(i => (i.x || []).some(x => !x.es || !x.en)).length; return n; });
+ok('examples missing a translation never print "null"', !/\bnull\b/.test(backTxt), `${nullHits} cards have an example with one translation missing`);
+ok('no level/source footer on the card', await curCard().locator('.small').count() === 0 && !/Level:|FLELex|SMARTool|KELLY/.test(backTxt));
+const sz = await page.evaluate(() => { const c = document.querySelector('.card:not(.next)').getBoundingClientRect(), s = document.querySelector('.stage').getBoundingClientRect(); return { cw: c.width, ch: c.height, sw: s.width, sh: s.height, vw: innerWidth, vh: innerHeight, right: c.right, bottom: c.bottom }; });
+ok('card ~13% smaller than the stage and fully on screen', sz.cw / sz.sw > 0.84 && sz.cw / sz.sw < 0.9 && sz.ch / sz.sh > 0.84 && sz.ch / sz.sh < 0.9 && sz.right <= sz.vw && sz.bottom <= sz.vh, JSON.stringify(sz));
+const fsz = await curCard().locator('[data-test=tr-es]').evaluate(e => parseFloat(getComputedStyle(e).fontSize));
+ok('translations stay readable (>= 20px)', fsz >= 20, String(fsz));
 await shot('23-fr-noun-back');
 if (it.x && it.x.length > 1) {
   const eb = await curCard().locator('[data-test=example]').boundingBox(); await tapAt(eb.x + eb.width / 2, eb.y + eb.height / 2);
@@ -161,8 +170,57 @@ const [dl2] = await Promise.all([page.waitForEvent('download'), page.tap('[data-
 const csv = fs.readFileSync(await dl2.path(), 'utf8').trim().split('\n');
 ok('events CSV has an undone column', csv[0].split(',').includes('undone') && csv.length === evs.length + 1, csv[0]);
 await page.goto(BASE + '#/about'); await page.waitForSelector('.credits');
-ok('About credits Tatoeba CC BY 2.0 FR', await page.evaluate(() => /Tatoeba/.test(document.body.innerText) && /CC BY 2\.0 FR/.test(document.body.innerText)));
+ok('About credits Tatoeba CC BY 2.0 FR, Wiktionary, FLELex, SMARTool, KELLY, OMW', await page.evaluate(() => ['Tatoeba', 'CC BY 2.0 FR', 'Wiktionary', 'CC BY-SA 4.0', 'FLELex', 'SMARTool', 'KELLY', 'Open Multilingual Wordnet'].every(t => document.body.innerText.includes(t))));
+await page.locator('[data-test="credits-fr-A1-noun.json"] summary').tap(); await page.waitForSelector('[data-test="credits-fr-A1-noun.json"] li');
+const frPack = await page.evaluate(async () => (await (await fetch('data/fr-A1-noun.json')).json()).items.flatMap(i => i.x || []));
+const nLi = await page.locator('[data-test="credits-fr-A1-noun.json"] li').count();
+const li0 = await page.locator('[data-test="credits-fr-A1-noun.json"] li').first().innerText();
+ok('About lists every Tatoeba sentence ID + author', nLi === frPack.length && li0.includes(`#${frPack[0].id}`) && li0.includes(frPack[0].by), `${nLi}/${frPack.length} · ${li0}`);
 await shot('32-about');
+// ---------- 5b. home shortcuts
+const LS = () => page.evaluate(() => JSON.parse(localStorage.getItem('langapp.shortcuts.v1') || '[]'));
+await page.goto(BASE); await page.waitForSelector('[data-test=shortcuts]');
+ok('home starts with only the + tile', await page.locator('[data-test=shortcuts] .tile').count() === 1 && await page.locator('[data-test=shortcut-add]').count() === 1);
+await page.tap('[data-test=shortcut-add]'); await page.waitForSelector('[data-test=lang-fr]');
+ok('+ tile opens the deck picker', (await page.evaluate(() => location.hash)) === '#/fc');
+await page.tap('[data-test=lang-fr]'); await page.tap('[data-test=level-A1]'); await page.waitForSelector('[data-test=pin-noun]');
+await page.tap('[data-test=pin-noun]');
+ok('★ pins French A1 nouns (and does not open the deck)', (await page.evaluate(() => location.hash)) === '#/fc/fr/A1' && await page.getAttribute('[data-test=pin-noun]', 'aria-pressed') === 'true' && (await LS()).length === 1);
+await page.tap('[data-test=pin-verb]'); await page.tap('[data-test=pin-verb]');
+ok('★ again unpins', await page.getAttribute('[data-test=pin-verb]', 'aria-pressed') === 'false' && (await LS()).length === 1);
+await page.tap('[data-test=pin-verb]');
+await shot('33-stack-pins');
+await page.goto(BASE + '#/fc/ru/A1'); await page.waitForSelector('[data-test=pin-noun]'); await page.tap('[data-test=pin-noun]');
+await page.goto(BASE); await page.waitForSelector('[data-test=shortcuts]');
+const tiles = await page.locator('[data-test^=shortcut-stack]').allInnerTexts();
+ok('home shows the 3 pinned decks in pin order', tiles.length === 3 && /French A1\s*Nouns/.test(tiles[0]) && /French A1\s*Verbs/.test(tiles[1]) && /Russian A1\s*Nouns/.test(tiles[2]), tiles.map(t => t.replace(/\s+/g, ' ')).join(' | '));
+await shot('34-home-shortcuts');
+await page.reload(); await page.waitForSelector('[data-test=shortcuts]');
+ok('shortcuts survive a reload', await page.locator('[data-test^=shortcut-stack]').count() === 3);
+await page.tap('[data-test=shortcut-stack-fr-A1-noun]'); await page.waitForSelector('.card:not(.next)');
+ok('one tap on a shortcut starts that deck', (await page.evaluate(() => location.hash)) === '#/fc/fr/A1/noun' && (await page.locator('#title').innerText()).includes('French A1'));
+const evBefore = (await idbAll('events')).length; await touchSwipe(1);
+ok('reviews from a shortcut session are recorded', (await idbAll('events')).length === evBefore + 1 && (await idbAll('events')).at(-1).result === 'knew' && (await consistent()).length === 0);
+await page.tap('#back'); await page.waitForSelector('[data-test=shortcuts]');
+ok('back from a shortcut session returns home', (await page.evaluate(() => location.hash)) === '#/');
+// long-press -> edit mode -> remove
+const tb = await page.locator('[data-test=shortcut-stack-ru-A1-noun]').boundingBox();
+await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: tb.x + tb.width / 2, y: tb.y + tb.height / 2 }] });
+await page.waitForTimeout(800); await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await page.waitForTimeout(400);
+ok('long-press enters edit mode without opening the deck', (await page.evaluate(() => location.hash)) === '#/' && await page.locator('.shortcuts.editing [data-test^=rm-]').count() === 3);
+await shot('35-home-edit');
+await page.locator('[data-test=rm-stack-ru-A1-noun]').tap({ force: true }); await page.waitForTimeout(200);
+ok('× removes the shortcut', await page.locator('[data-test^=shortcut-stack]').count() === 2 && (await LS()).length === 2 && !(await LS()).some(x => x.lang === 'ru'));
+await page.locator('[data-test=shortcuts-done]').tap({ force: true });
+ok('✓ leaves edit mode', await page.locator('.shortcuts.editing').count() === 0 && await page.locator('[data-test=shortcut-add]').count() === 1);
+await page.goto(BASE + '#/fc/ru/A1'); await page.waitForSelector('[data-test=pin-noun]');
+ok('deck picker reflects the removal', await page.getAttribute('[data-test=pin-noun]', 'aria-pressed') === 'false');
+await page.evaluate(() => { const l = JSON.parse(localStorage.getItem('langapp.shortcuts.v1')); l.push({ kind: 'topic', lang: 'fr', topic: 'countries' }); localStorage.setItem('langapp.shortcuts.v1', JSON.stringify(l)); });
+await page.goto(BASE); await page.waitForSelector('[data-test=shortcuts]');
+ok('unknown future deck kinds are kept but not shown', await page.locator('[data-test^=shortcut-]:not([data-test=shortcut-add])').count() === 2 && (await LS()).length === 3);
+await page.evaluate(() => { const l = JSON.parse(localStorage.getItem('langapp.shortcuts.v1')).filter(x => x.kind !== 'topic'); localStorage.setItem('langapp.shortcuts.v1', JSON.stringify(l)); });
+await page.reload(); await page.waitForSelector('[data-test=shortcuts]'); await shot('34-home-shortcuts');
+
 // ---------- 6. installability + offline
 const inst = await cdp.send('Page.getInstallabilityErrors');
 ok('installable (no installability errors)', inst.installabilityErrors.length === 0, JSON.stringify(inst.installabilityErrors));

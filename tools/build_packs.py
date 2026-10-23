@@ -158,7 +158,7 @@ if __name__ == '__main__':
                                 WHERE s.source_id IN ('enwikt','frwikt','eswikt','ruwikt','nlwikt','FLELex TT-Beacco','SMARTool data-rus-eng','KELLY Russian (ru_m3)','omw')""")]
     cr.append({'source_id': 'tatoeba', 'name': 'Tatoeba', 'version': 'weekly export downloaded ' + __import__('time').strftime('%Y-%m-%d', __import__('time').localtime(os.path.getmtime('/workspace/langdb/tatoeba/fra_sentences_detailed.tsv.bz2'))),
                'url': 'https://tatoeba.org/', 'license': 'CC BY 2.0 FR', 'license_url': 'https://creativecommons.org/licenses/by/2.0/fr/',
-               'required_notice': 'Example sentences and their translations from Tatoeba (https://tatoeba.org), licensed CC BY 2.0 FR. Each sentence shows its Tatoeba ID; see https://tatoeba.org/sentences/show/<ID> for author and history.',
+               'required_notice': 'Example sentences and their translations from Tatoeba (https://tatoeba.org), licensed CC BY 2.0 FR. Sentence IDs and authors are listed on the About screen and stored with each card in data/*.json (fields id, by); see https://tatoeba.org/sentences/show/<ID> for history.',
                'citation': 'Tatoeba contributors. https://tatoeba.org'})
     json.dump(cr, open(os.path.join(OUT, 'credits.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     json.dump(index, open(os.path.join(OUT, 'index.json'), 'w'), indent=1)

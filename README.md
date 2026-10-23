@@ -6,10 +6,11 @@ This is an installable, offline-first flashcard app for learning French and Russ
 
 ## Use
 - **Menu → Flashcards → language → level → stack (Nouns / Verbs).**
+- **Home shortcuts:** tap ★ next to a stack to pin it to the home screen (tap again to unpin); one tap on the tile starts that deck. Long-press a tile to edit, × removes it, ✓ finishes. The + tile opens the deck picker. Shortcuts are deck descriptors (`{kind:'stack', lang, level, stack}`) saved in `localStorage` (`langapp.shortcuts.v1`), so they survive updates; future topic decks only need a new `kind` in `deckInfo()` (`js/app.js`).
 - **Card front:** only the word, with its article for French nouns (un/une). Gender, aspect, translations, definition and an example sentence are on the back.
 - **Flip a card:** tap it. **Answer:** swipe right if you knew it, left if you didn't. There are no on-screen answer buttons; on desktop the keys still work (Space/Enter flip, → knew, ← didn't).
 - **Undo:** the ↶ Undo button in the top bar (or Backspace / Ctrl+Z) brings back the previous card. The review event is kept but flagged `undone`, it is excluded from every statistic, and that word's totals are recomputed from its remaining events.
-- **Examples:** the back shows the best Tatoeba sentence with its Spanish and English translations; tap the example to cycle through up to 3.
+- **Examples:** the back shows the best Tatoeba sentence with its Spanish and English translations; tap the example to cycle through up to 3. Source lines are not shown on the card; the ID and author of every Tatoeba sentence are listed on the About screen.
 - **Card order:** a weighted shuffle. Unseen cards and cards you missed last time come first.
 - **Stats:** stored on the device in IndexedDB. Every review is saved as an event, and each word keeps running totals. Stats & settings can export them as JSON, events CSV or words CSV.
 
@@ -18,9 +19,9 @@ This is an installable, offline-first flashcard app for learning French and Russ
 
 ## Release / update flow
 1. Change the code or regenerate the packs: `python3 tools/build_packs.py /path/to/langdb.sqlite`.
-2. Bump `VERSION` (3-part semver `MAJOR.MINOR.PATCH`, e.g. `0.2.0` → `0.2.1`).
+2. Bump `VERSION` (3-part semver `MAJOR.MINOR.PATCH`, e.g. `0.3.0` → `0.3.1`).
 3. Run `python3 tools/stamp.py`. It writes `js/version.js` and `sw.js` (cache `langapp-<version>` + the precache list). The content hash is kept only as a comment in `sw.js` and in `tools/stamp.lock.json`; stamping refuses to run if shipped files changed but `VERSION` did not.
-4. Commit and push. Installed apps check for a new service worker on launch, every 30 minutes and whenever the app comes back to the foreground. The new version activates right away. On menu screens the app reloads and shows an "Updated to vX" toast; in the middle of a session it offers a Reload button instead.
+4. Commit and push. Installed apps check for a new service worker on launch, every 30 minutes and whenever the app comes back to the foreground. Any `VERSION` change produces a byte-different `sw.js`, so the browser installs it whatever the installed version is (also downgrades). The new version activates right away. On menu screens the app reloads and shows an "Updated to vX" toast; in the middle of a session it offers a Reload button instead.
 
 ## Data credits and licences
 | Source | Used for | Licence |
@@ -29,7 +30,7 @@ This is an installable, offline-first flashcard app for learning French and Russ
 | [FLELex](https://cental.uclouvain.be/cefrlex/flelex/) (François et al. 2014; Pintard & François 2020) | French A1 word list | CC BY-NC-SA 4.0 |
 | [SMARTool data-rus-eng](https://github.com/smartool/data-rus-eng) (UiT) | Russian A1 word list | CC BY 4.0 |
 | [KELLY Russian list](https://ssharoff.github.io/kelly/) (Kilgarriff et al. 2014) | Russian A1 word list | CC BY-NC-SA 2.0 |
-| [Tatoeba](https://tatoeba.org) (weekly exports) | example sentences and their Spanish/English translations (each shown with its Tatoeba ID) | [CC BY 2.0 FR](https://creativecommons.org/licenses/by/2.0/fr/) |
+| [Tatoeba](https://tatoeba.org) (weekly exports) | example sentences and their Spanish/English translations (sentence IDs and authors listed on the About screen and in `data/*.json`) | [CC BY 2.0 FR](https://creativecommons.org/licenses/by/2.0/fr/) |
 | [Open Multilingual Wordnet 1.4](https://omwn.org/) | translation reliability scoring only | WordNet licence / CeCILL-C / CC BY 3.0 / CC BY-SA 4.0 |
 
 Because of the NC sources, the data in `data/` is for **non-commercial use** under CC BY-NC-SA. See `LICENSE`.
