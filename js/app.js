@@ -72,7 +72,7 @@ function shortcutTile(sc, editing, rerender) {
   if (!d) return null;
   let timer = null, long = false;
   const tile = h('a', { class: `tile lang-${sc.lang}`, href: editing ? null : d.route, 'data-test': `shortcut-${deckKey(sc)}`, title: d.label },
-    icon(d.flag, 'ico flagdot'), h('span', { class: 'lbl' }, d.line1, h('b', {}, d.line2)),
+    h('span', { class: 'tile-top' }, icon(d.flag, 'ico flagdot'), icon(d.ico, 'i topic')), h('span', { class: 'lbl' }, d.line1, h('b', {}, d.line2)),
     editing ? h('button', { class: 'rm', 'aria-label': `Remove ${d.label}`, 'data-test': `rm-${deckKey(sc)}`,
       onclick: e => { e.preventDefault(); e.stopPropagation(); removeShortcut(sc); rerender(getShortcuts().length > 0); } }, icon('x')) : null);
   tile.addEventListener('pointerdown', () => { long = false; clearTimeout(timer); timer = setTimeout(() => { long = true; rerender(true); }, 550); });
@@ -132,26 +132,31 @@ async function chooseLevel(lang) {
 async function chooseStack(lang, lv) {
   setTitle(`${LANGS[lang].name} ${lv}`, `#/fc/${lang}`);
   const idx = await getIndex();
-  const list = h('div', { class: 'list' });
+  const list = h('div', { class: 'decks' });
   for (const [k, s] of Object.entries(STACKS)) {
     const p = idx.packs.find(p => p.lang === lang && p.level === lv && p.stack === k);
     if (!p) continue;
     const ws = await wordStats(`${lang}-${lv}-${k}`);
-    const known = ws.filter(w => w.lastResult === 'knew').length;
+    const known = ws.filter(w => w.lastResult === 'knew').length, pct = Math.round(100 * known / p.count);
     const sc = { kind: 'stack', lang, level: lv, stack: k };
     const pin = h('button', { class: 'pin', 'aria-label': `Pin ${s.name} to home`, 'aria-pressed': String(isPinned(sc)), 'data-test': `pin-${k}`,
       onclick: e => { e.preventDefault(); e.stopPropagation(); pin.setAttribute('aria-pressed', String(togglePin(sc))); } }, icon('star'));
-    list.append(h('a', { class: 'item stack', href: `#/fc/${lang}/${lv}/${k}`, 'data-test': `stack-${k}` }, h('span', { class: 'ico' }, icon(s.ico)),
-      h('span', { class: 'grow' }, s.name, h('span', { class: 'sub' }, `${p.count} cards · ${ws.length} seen · ${known} known`),
-        h('span', { class: 'meter', role: 'presentation' }, h('i', { style: `width:${(100 * known / p.count).toFixed(1)}%` }))), pin));
+    list.append(h('a', { class: `deck lang-${lang}`, href: `#/fc/${lang}/${lv}/${k}`, 'data-test': `stack-${k}` },
+      h('span', { class: 'deck-top' }, h('span', { class: 'ico' }, icon(s.ico)), h('span', { class: 'lvl', 'aria-label': `Level ${lv}` }, lv), pin),
+      h('span', { class: 'deck-name' }, s.name),
+      h('span', { class: 'sub' }, `${p.count} cards · ${ws.length} seen · ${known} known`),
+      h('span', { class: 'deck-foot' }, h('span', { class: 'meter', role: 'presentation' }, h('i', { style: `width:${(100 * known / p.count).toFixed(1)}%` })),
+        h('span', { class: 'pct' }, `${pct}%`)),
+      icon('chev', 'i chev')));
   }
-  $view.append(list, h('p', { class: 'pin-hint' }, 'Tap ', icon('star'), ' to pin a deck to the home screen.'));
+  $view.append(h('div', { class: `deck-hero lang-${lang}` }, icon(lang, 'flag'), h('span', { class: 'grow' }, h('span', { class: 'name', lang }, LANGS[lang].native),
+    h('span', { class: 'meta' }, `${lv} · ${LEVEL_NAMES[lv]}`))), list, h('p', { class: 'pin-hint' }, 'Tap ', icon('star'), ' to pin a deck to the home screen.'));
 }
 
 // deck descriptors: {kind:'stack', lang, level, stack}; future: {kind:'topic', lang, topic}
 function deckInfo(sc) {
   if (sc.kind === 'stack' && LANGS[sc.lang] && STACKS[sc.stack])
-    return { route: `#/fc/${sc.lang}/${sc.level}/${sc.stack}`, flag: sc.lang, line1: `${LANGS[sc.lang].name} ${sc.level}`, line2: STACKS[sc.stack].name,
+    return { route: `#/fc/${sc.lang}/${sc.level}/${sc.stack}`, flag: sc.lang, line1: `${LANGS[sc.lang].name} ${sc.level}`, line2: STACKS[sc.stack].name, ico: STACKS[sc.stack].ico,
       label: `${LANGS[sc.lang].name} ${sc.level} ${STACKS[sc.stack].name.toLowerCase()}` };
   return null;   // unknown kinds (e.g. from a newer version) are kept in storage but not shown
 }

@@ -162,9 +162,9 @@ for (const [vw, vh] of SIZES) {
   await touch(cdp, 'touchMove', [{ x: b.x + b.width / 2, y: b.y + b.height / 2 }]); await touch(cdp, 'touchEnd', []); await page.waitForTimeout(600);
   ok('releasing near the start snaps back without recording', (await idbAll(page, 'events')).length === 5);
   // theme persistence
-  await page.goto(BASE + '#/stats'); await page.waitForSelector('[data-test=event-count]'); await page.waitForTimeout(500); await page.tap('[data-test=theme-light]');
-  console.log('hit', await page.evaluate(() => { const r = document.querySelector('[data-test=theme-light]').getBoundingClientRect(); const e = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return [r.y, innerHeight, scrollY, e && e.outerHTML.slice(0, 120)]; }));
-  console.log('theme dbg', await page.evaluate(() => [localStorage.getItem('langapp.theme.v1'), document.documentElement.dataset.theme, document.querySelector('meta[name=theme-color]').content, location.hash, document.querySelectorAll('[data-test=theme-light]').length]));
+  await page.goto(BASE + '#/stats'); await page.waitForSelector('[data-test=event-count]'); await page.waitForTimeout(500);
+  // headless Chrome swallows the first synthetic tap after a cancelled CDP drag (reproduces on a blank page), so tap a neutral spot first
+  await page.tap('.panel h2'); await page.waitForTimeout(200); await page.tap('[data-test=theme-light]');
   ok('theme switch saves langapp.theme.v1 and recolours the status bar', await page.evaluate(() => localStorage.getItem('langapp.theme.v1') === 'light' && document.documentElement.dataset.theme === 'light' && document.querySelector('meta[name=theme-color]').content === '#f2eee6'));
   await page.reload(); await page.waitForSelector('[data-test=theme-light]');
   ok('light theme survives a reload', await page.evaluate(() => document.documentElement.dataset.theme === 'light') && await page.getAttribute('[data-test=theme-light]', 'aria-pressed') === 'true');
