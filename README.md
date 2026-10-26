@@ -20,7 +20,7 @@ This is an installable, offline-first flashcard app for learning French and Russ
 ## Release / update flow
 1. Change the code or regenerate the packs: `python3 tools/build_packs.py /path/to/langdb.sqlite`.
 2. Bump `VERSION` (3-part semver `MAJOR.MINOR.PATCH`, e.g. `0.3.0` → `0.3.1`).
-3. Run `python3 tools/stamp.py`. It writes `js/version.js` and `sw.js` (cache `langapp-<version>` + the precache list). The content hash is kept only as a comment in `sw.js` and in `tools/stamp.lock.json`; stamping refuses to run if shipped files changed but `VERSION` did not.
+3. Run `python3 tools/stamp.py`. It writes `js/version.js` and `sw.js` (cache `langapp-<version>` + the precache list). The content hash is kept only as a comment in `sw.js` and in `tools/stamp.lock.json`; stamping refuses to run if shipped files changed but `VERSION` did not. The Pages workflow re-runs the stamp and fails the deploy if `sw.js` or `js/version.js` is out of date, so a forgotten stamp can't ship.
 4. Commit and push. Installed apps check for a new service worker on launch, every 30 minutes and whenever the app comes back to the foreground. Any `VERSION` change produces a byte-different `sw.js`, so the browser installs it whatever the installed version is (also downgrades). The new version activates right away. On menu screens the app reloads and shows an "Updated to vX" toast; in the middle of a session it offers a Reload button instead.
 
 ## Data credits and licences
