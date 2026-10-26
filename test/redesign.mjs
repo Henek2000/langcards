@@ -189,6 +189,44 @@ for (const [vw, vh] of SIZES) {
   await ctx.close();
 }
 
+// ---------- 2b. real 0.3.0 data: main's own build writes the history on the same origin, then the redesign opens it
+// Serve both builds from one origin, e.g. <root>/langcards-old/ (main, v0.3.0) and <root>/langcards/ (this build):
+//   OLD_BASE=http://localhost:8093/langcards-old/ BASE=http://localhost:8093/langcards/
+if (process.env.OLD_BASE) {
+  const OLD = process.env.OLD_BASE;
+  const { ctx, page, errors, cdp } = await newPage(390, 844, { longest: false });
+  await page.goto(OLD + '#/fc/fr/A1'); await page.waitForSelector('[data-test=pin-noun]');
+  ok('old-data: OLD_BASE really serves v0.3.0 on the same origin as BASE', new URL(OLD).origin === new URL(BASE).origin
+    && (await page.evaluate(async () => (await (await fetch('js/version.js')).text()))).includes("'0.3.0'"));
+  await page.tap('[data-test=pin-noun]');
+  await page.goto(OLD + '#/fc/fr/A1/noun'); await page.waitForSelector('.card:not(.next)'); await page.waitForTimeout(600);
+  await tapCard(page, cdp); await swipe(page, cdp, 1); await swipe(page, cdp, -1); await swipe(page, cdp, 1);
+  await page.tap('#undo'); await page.waitForTimeout(800);
+  const oldEv = await idbAll(page, 'events'), oldW = await idbAll(page, 'words'), oldSc = await page.evaluate(() => localStorage.getItem('langapp.shortcuts.v1'));
+  ok('old-data: v0.3.0 wrote 3 events (1 undone), 2 word rows, 1 shortcut', oldEv.length === 3 && oldEv.filter(e => e.undone).length === 1 && oldW.length === 2 && JSON.parse(oldSc).length === 1,
+    JSON.stringify({ e: oldEv.length, w: oldW.length, oldSc }));
+  await page.goto(BASE); await page.waitForSelector('[data-test=menu-flashcards]'); await page.waitForTimeout(400);
+  ok('old-data: redesign home shows the v0.3.0 shortcut', await page.locator('[data-test=shortcut-stack-fr-A1-noun]').count() === 1);
+  await page.goto(BASE + '#/fc/fr/A1'); await page.waitForSelector('[data-test=stack-noun]');
+  const known = oldW.filter(w => w.lastResult === 'knew').length, deckTxt = await page.locator('[data-test=stack-noun]').innerText();
+  ok('old-data: redesign stack picker shows the v0.3.0 progress and pin', deckTxt.includes(`626 cards · 2 seen · ${known} known`) && await page.getAttribute('[data-test=pin-noun]', 'aria-pressed') === 'true', deckTxt);
+  await page.goto(BASE + '#/stats'); await page.waitForSelector('[data-test=event-count]');
+  const cnt = await page.locator('[data-test=event-count]').innerText(), row = (await page.locator('tr', { hasText: 'French A1 Nouns' }).innerText()).replace(/\s+/g, ' ');
+  ok('old-data: redesign stats count the v0.3.0 history', cnt.startsWith('2 review events') && cnt.includes('+1 undone') && row.includes(`626 2 ${known} 50%`), `${cnt} | ${row}`);
+  ok('old-data: opening the redesign changed no v0.3.0 record', JSON.stringify(await idbAll(page, 'events')) === JSON.stringify(oldEv)
+    && JSON.stringify(await idbAll(page, 'words')) === JSON.stringify(oldW) && await page.evaluate(() => localStorage.getItem('langapp.shortcuts.v1')) === oldSc);
+  await page.goto(BASE + '#/fc/fr/A1/noun'); await page.waitForSelector('.card:not(.next)'); await page.waitForTimeout(600);
+  await swipe(page, cdp, 1);
+  const ev2 = await idbAll(page, 'events');
+  ok('old-data: redesign appends to the v0.3.0 history with the same event shape', ev2.length === 4 && ev2.slice(0, 3).every((e, k) => JSON.stringify(e) === JSON.stringify(oldEv[k]))
+    && JSON.stringify(Object.keys(ev2[3]).sort()) === JSON.stringify(Object.keys(oldEv[0]).sort()) && ev2[3].appVersion !== '0.3.0' && ev2[3].result === 'knew', JSON.stringify(ev2[3]));
+  await page.goto(OLD + '#/stats'); await page.waitForSelector('[data-test=event-count]');
+  const back = await page.locator('[data-test=event-count]').innerText();
+  ok('old-data: v0.3.0 still reads the history after the redesign wrote to it (rollback-safe)', back.startsWith('3 review events') && back.includes('+1 undone'), back);
+  ok('old-data run: no console errors', errors.length === 0, errors.join(' | '));
+  await ctx.close();
+} else ok('old-data test needs OLD_BASE (v0.3.0 build on the same origin as BASE)', false);
+
 // ---------- 3. reduced motion
 {
   const { ctx, page, errors, cdp } = await newPage(390, 844, { reducedMotion: 'reduce', longest: false });
