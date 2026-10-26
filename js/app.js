@@ -51,8 +51,12 @@ const routes = [
   [/^#\/stats$/, statsScreen],
   [/^#\/about$/, about],
 ];
-let cleanup = null, prevHash = null, curHash = null;
+let cleanup = null, prevHash = null, curHash = null, gen = 0;
+// every render bumps gen; an async screen checks stale(g) after each await and stops if the user has moved on,
+// so a screen still loading never draws into (or adds key handlers to) the next one
+const stale = g => g !== gen;
 async function render() {
+  gen++;
   if (cleanup) { cleanup(); cleanup = null; }
   const hash = location.hash || '#/';
   if (hash !== curHash) { prevHash = curHash; curHash = hash; }
@@ -118,8 +122,10 @@ function chooseLang() {
       icon(k, 'flag'), h('span', { class: 'grow' }, h('span', { class: 'name' }, l.name), h('span', { class: 'native', lang: k }, l.native)), icon('chev', 'i chev')))));
 }
 async function chooseLevel(lang) {
+  const g = gen;
   setTitle(`${LANGS[lang].name} · level`, '#/fc');
   const idx = await getIndex();
+  if (stale(g)) return;
   $view.append(h('div', { class: 'levels' }, LEVELS.map(lv => {
     const n = idx.packs.filter(p => p.lang === lang && p.level === lv).reduce((a, p) => a + p.count, 0);
     return AVAILABLE[lv] && n
@@ -130,6 +136,7 @@ async function chooseLevel(lang) {
   })));
 }
 async function chooseStack(lang, lv) {
+  const g = gen;
   setTitle(`${LANGS[lang].name} ${lv}`, `#/fc/${lang}`);
   const idx = await getIndex();
   const list = h('div', { class: 'decks' });
@@ -137,6 +144,7 @@ async function chooseStack(lang, lv) {
     const p = idx.packs.find(p => p.lang === lang && p.level === lv && p.stack === k);
     if (!p) continue;
     const ws = await wordStats(`${lang}-${lv}-${k}`);
+    if (stale(g)) return;
     const known = ws.filter(w => w.lastResult === 'knew').length, pct = Math.round(100 * known / p.count);
     const sc = { kind: 'stack', lang, level: lv, stack: k };
     const pin = h('button', { class: 'pin', 'aria-label': `Pin ${s.name} to home`, 'aria-pressed': String(isPinned(sc)), 'data-test': `pin-${k}`,
@@ -217,16 +225,19 @@ function fitWord(card) {
 
 // ---------------- session (swipe right = knew, left = didn't, tap = flip; ↶ undo in the top bar)
 async function session(lang, lv, stack) {
+  const g = gen;
   const meta = (await getIndex()).packs.find(p => p.lang === lang && p.level === lv && p.stack === stack);
   setTitle(`${LANGS[lang].name} ${lv} · ${STACKS[stack].name}`, prevHash === '#/' ? '#/' : `#/fc/${lang}/${lv}`);
   const pack = await getPack(meta.file);
   const stats = Object.fromEntries((await wordStats(`${lang}-${lv}-${stack}`)).map(s => [s.id, s]));
+  if (stale(g)) return;
   const deck = order(pack.items, stats);
   const sessionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
   let i = 0, knew = 0, didnt = 0, busy = false, finished = false;
   const history = [];   // [{i, result, eid: Promise<number>}]
   const $prog = h('div', { class: 'progress' }), $bar = h('i'), stage = h('div', { class: 'stage', 'data-test': 'stage' });
   try { await Promise.all(['Aa', 'Яя', 'Āā'].map(t => document.fonts.load('600 40px Unbounded', t))); } catch { /* fonts are optional */ }
+  if (stale(g)) return;
   const $sess = h('div', { class: 'session' }, $prog, h('div', { class: 'bar' }, $bar), stage);
   $view.append($sess);
   $undo.hidden = false; $undo.onclick = () => undo();
@@ -342,8 +353,10 @@ function download(name, text, type) {
 const csvCell = v => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
 const toCSV = (rows, cols) => [cols.join(','), ...rows.map(r => cols.map(c => csvCell(r[c])).join(','))].join('\n');
 async function statsScreen() {
+  const g = gen;
   setTitle('Stats & settings', '#/');
   const [words, nEv, idx] = [await allWords(), await countEvents(), await getIndex()];
+  if (stale(g)) return;
   const tbl = h('table', {}, h('tr', {}, h('th', {}, 'Stack'), h('th', {}, 'Cards'), h('th', {}, 'Seen'), h('th', {}, 'Known'), h('th', {}, 'Accuracy')));
   for (const p of idx.packs) {
     const ws = words.filter(w => w.pack === `${p.lang}-${p.level}-${p.stack}`);
@@ -371,9 +384,11 @@ async function statsScreen() {
       h('p', { class: 'hint' }, `Version ${APP_VERSION}`)));
 }
 async function about() {
+  const g = gen;
   setTitle('About & credits', '#/');
   const credits = await (await fetch('data/credits.json')).json();
   const idx = await getIndex();
+  if (stale(g)) return;
   $view.append(h('div', { class: 'panel credits' }, h('h2', {}, 'About'),
       h('p', {}, 'Every word, definition, translation and example sentence in this app comes from the open datasets below. Nothing was written by hand. Cards were picked automatically from the CEFR A1 lists; translations are limited to direct or multi-source links. Example sentences are chosen automatically from Tatoeba (short, simple sentences with Spanish/English translations); Wiktionary examples are used only where Tatoeba has none. The Tatoeba ID and author of every example sentence are listed below.'),
       h('p', {}, `Packs: ${idx.packs.map(p => `${p.file} (${p.count})`).join(', ')}.`),

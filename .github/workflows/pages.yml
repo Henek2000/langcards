@@ -22,6 +22,12 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - name: Check the version stamp is current
+        run: |
+          # sw.js is cache-first: if it isn't re-stamped, installed apps never pick up changed files
+          python3 tools/stamp.py
+          git diff --exit-code -- sw.js js/version.js tools/stamp.lock.json \
+            || { echo '::error::sw.js / js/version.js are stale: bump VERSION and run python3 tools/stamp.py'; exit 1; }
       - name: Assemble static site (only shipped files)
         run: |
           mkdir -p _site
