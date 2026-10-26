@@ -7,7 +7,7 @@ const BASE = process.env.BASE || 'http://localhost:8081/langcards/', SITE = proc
 const OLD_DIR = process.env.OLD_DIR, NEW_DIR = process.env.NEW_DIR || '/workspace/langapp', SHOTS = process.env.SHOTS || '/workspace/langapp/shots/';
 const EXPECT = fs.readFileSync(NEW_DIR + '/VERSION', 'utf8').trim();
 const results = []; const ok = (name, cond, extra = '') => { results.push({ name, pass: !!cond, extra }); console.log(cond ? 'PASS' : 'FAIL', name, extra); };
-const assemble = dir => execSync(`/workspace/langapp-test/assemble.sh ${dir} ${SITE}`);
+const assemble = dir => execSync(`bash ${dir}/test/assemble.sh ${dir} ${SITE}`);
 fs.rmSync('/tmp/langapp-profile', { recursive: true, force: true });
 const ctx = await chromium.launchPersistentContext('/tmp/langapp-profile', { executablePath: '/usr/bin/google-chrome', headless: true, args: ['--no-sandbox'], viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, acceptDownloads: true,
   userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36' });

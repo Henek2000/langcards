@@ -2,13 +2,16 @@ import { recordReview, undoReview, wordStats, allWords, allEvents, countEvents, 
 import { order } from './deck.js';
 import { APP_VERSION } from './version.js';
 import { getShortcuts, isPinned, togglePin, removeShortcut, deckKey } from './shortcuts.js';
+import { icon } from './icons.js';
 
-const LANGS = { fr: { name: 'French', native: 'Français', flag: '🇫🇷' }, ru: { name: 'Russian', native: 'Русский', flag: '🇷🇺' } };
+const LANGS = { fr: { name: 'French', native: 'Français', glyph: 'Fr' }, ru: { name: 'Russian', native: 'Русский', glyph: 'Ру' } };
 const LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+const LEVEL_NAMES = { A1: 'Beginner', A2: 'Elementary', B1: 'Intermediate', B2: 'Upper intermediate', C1: 'Advanced', C2: 'Proficient' };
 const AVAILABLE = { A1: true };
-const STACKS = { noun: { name: 'Nouns', ico: '📦' }, verb: { name: 'Verbs', ico: '🏃' } };
+const STACKS = { noun: { name: 'Nouns', ico: 'noun' }, verb: { name: 'Verbs', ico: 'verb' } };
 const GENDER = { fr: { m: 'masculine', f: 'feminine', mf: 'masc./fem.' }, ru: { m: 'masculine', f: 'feminine', n: 'neuter', mf: 'common' } };
 const ASPECT = { impf: 'imperfective', pf: 'perfective', 'impf/pf': 'impf. & pf.' };
+const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)');
 
 const $view = document.getElementById('view'), $title = document.getElementById('title'), $back = document.getElementById('back'), $undo = document.getElementById('undo');
 const h = (tag, attrs = {}, ...kids) => {
@@ -25,6 +28,18 @@ async function getIndex() { if (!index) index = await (await fetch('data/index.j
 const packCache = {};
 async function getPack(file) { if (!packCache[file]) packCache[file] = await (await fetch('data/' + file)).json(); return packCache[file]; }
 function setTitle(t, back) { $title.textContent = t; $back.hidden = !back; $back.onclick = () => { location.hash = back; }; $undo.hidden = true; $undo.onclick = null; }
+$back.replaceChildren(icon('back')); $undo.replaceChildren(icon('undo'), h('span', { class: 'lbl' }, 'Undo'));
+
+// ---------------- theme (dark default; light or follow the system), kept in localStorage
+const THEME_KEY = 'langapp.theme.v1', THEME_COLORS = { dark: '#0b0d12', light: '#f2eee6' };
+const getTheme = () => { const t = localStorage.getItem(THEME_KEY); return t === 'light' || t === 'system' ? t : 'dark'; };
+function applyTheme() {
+  const t = getTheme(), eff = t === 'system' ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : t;
+  document.documentElement.dataset.theme = eff;
+  document.querySelector('meta[name=theme-color]').setAttribute('content', THEME_COLORS[eff]);
+}
+matchMedia('(prefers-color-scheme: light)').addEventListener('change', applyTheme);
+applyTheme();
 
 // ---------------- screens
 const routes = [
@@ -41,7 +56,12 @@ async function render() {
   if (cleanup) { cleanup(); cleanup = null; }
   const hash = location.hash || '#/';
   if (hash !== curHash) { prevHash = curHash; curHash = hash; }
-  for (const [re, fn] of routes) { const m = hash.match(re); if (m) { $view.replaceChildren(); await fn(...m.slice(1)); return; } }
+  const lang = (hash.match(/^#\/fc\/(fr|ru)/) || [])[1];
+  document.body.className = [lang ? `lang-${lang}` : '', routes[0][0].test(hash) ? 'route-home' : ''].filter(Boolean).join(' ');
+  for (const [re, fn] of routes) {
+    const m = hash.match(re);
+    if (m) { $view.replaceChildren(); $view.classList.remove('enter'); void $view.offsetWidth; $view.classList.add('enter'); await fn(...m.slice(1)); return; }
+  }
   location.hash = '#/';
 }
 window.addEventListener('hashchange', render);
@@ -51,10 +71,10 @@ function shortcutTile(sc, editing, rerender) {
   const d = deckInfo(sc);
   if (!d) return null;
   let timer = null, long = false;
-  const tile = h('a', { class: 'tile', href: editing ? null : d.route, 'data-test': `shortcut-${deckKey(sc)}`, title: d.label },
-    h('span', { class: 'ico' }, d.flag), h('span', { class: 'lbl' }, d.line1, h('b', {}, d.line2)),
+  const tile = h('a', { class: `tile lang-${sc.lang}`, href: editing ? null : d.route, 'data-test': `shortcut-${deckKey(sc)}`, title: d.label },
+    icon(d.flag, 'ico flagdot'), h('span', { class: 'lbl' }, d.line1, h('b', {}, d.line2)),
     editing ? h('button', { class: 'rm', 'aria-label': `Remove ${d.label}`, 'data-test': `rm-${deckKey(sc)}`,
-      onclick: e => { e.preventDefault(); e.stopPropagation(); removeShortcut(sc); rerender(getShortcuts().length > 0); } }, '×') : null);
+      onclick: e => { e.preventDefault(); e.stopPropagation(); removeShortcut(sc); rerender(getShortcuts().length > 0); } }, icon('x')) : null);
   tile.addEventListener('pointerdown', () => { long = false; clearTimeout(timer); timer = setTimeout(() => { long = true; rerender(true); }, 550); });
   for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) tile.addEventListener(ev, () => clearTimeout(timer));
   tile.addEventListener('click', e => { if (long || editing) e.preventDefault(); });
@@ -64,39 +84,49 @@ function shortcutTile(sc, editing, rerender) {
 function shortcutsEl() {
   const box = h('div', { class: 'shortcuts', 'data-test': 'shortcuts' });
   const draw = editing => {
-    const scs = getShortcuts();
+    const tiles = getShortcuts().map(sc => shortcutTile(sc, editing, draw)).filter(Boolean);
     box.classList.toggle('editing', editing);
-    box.replaceChildren(...scs.map(sc => shortcutTile(sc, editing, draw)).filter(Boolean),
-      editing ? h('button', { class: 'tile add done', 'data-test': 'shortcuts-done', onclick: () => draw(false) }, '✓')
-        : h('a', { class: 'tile add', href: '#/fc', 'aria-label': 'Add shortcut', 'data-test': 'shortcut-add' }, '+'));
+    box.replaceChildren(...tiles,
+      editing ? h('button', { class: 'tile add done', 'aria-label': 'Done editing', 'data-test': 'shortcuts-done', onclick: () => draw(false) }, icon('check'))
+        : h('a', { class: 'tile add', href: '#/fc', 'aria-label': 'Add shortcut', 'data-test': 'shortcut-add' }, icon('plus')),
+      ...(!tiles.length && !editing ? [h('p', { class: 'sc-empty' }, 'Pin a deck with ', icon('star'), ' to start it here in one tap.')] : []));
   };
   draw(false);
   return box;
 }
+const logo = () => { const s = h('span'); s.innerHTML = '<img class="logo" src="icons/lc-mark.svg" alt="" width="52" height="52">'; return s.firstChild; };
 function menu() {
   setTitle('Flashcards', null);
-  $view.append(shortcutsEl(), h('div', { class: 'list' },
-    h('a', { class: 'item', href: '#/fc', 'data-test': 'menu-flashcards' }, h('span', { class: 'ico' }, '🃏'),
-      h('span', { class: 'grow' }, 'Flashcards', h('span', { class: 'sub' }, 'French & Russian vocabulary, Spanish + English'))),
-    h('button', { class: 'item', disabled: true }, h('span', { class: 'ico' }, '🎧'), h('span', { class: 'grow' }, 'Listening', h('span', { class: 'sub' }, 'Future feature')), h('span', { class: 'badge' }, 'coming soon')),
-    h('button', { class: 'item', disabled: true }, h('span', { class: 'ico' }, '✍️'), h('span', { class: 'grow' }, 'Writing practice', h('span', { class: 'sub' }, 'Future feature')), h('span', { class: 'badge' }, 'coming soon')),
-    h('a', { class: 'item', href: '#/stats', 'data-test': 'menu-stats' }, h('span', { class: 'ico' }, '📊'), h('span', { class: 'grow' }, 'Stats & settings', h('span', { class: 'sub' }, 'Progress, export, updates'))),
-    h('a', { class: 'item', href: '#/about', 'data-test': 'menu-about' }, h('span', { class: 'ico' }, 'ℹ️'), h('span', { class: 'grow' }, 'About & credits', h('span', { class: 'sub' }, 'Data sources and licences')))),
+  const item = (cls, href, ico, title, sub, extra, test) => h(href ? 'a' : 'button', { class: `item ${cls}`, href, disabled: !href, 'data-test': test },
+    h('span', { class: 'ico' }, icon(ico)), h('span', { class: 'grow' }, title, h('span', { class: 'sub' }, sub)), extra || icon('chev', 'i chev'));
+  $view.append(
+    h('header', { class: 'hero' }, logo(), h('div', {}, h('h2', {}, 'Flashcards'), h('p', {}, 'French & Russian · Spanish + English'))),
+    h('h3', { class: 'section-label' }, 'Pinned decks'), shortcutsEl(),
+    h('h3', { class: 'section-label' }, 'Practice'),
+    h('div', { class: 'list' },
+      item('feature', '#/fc', 'cards', 'Flashcards', 'Swipe through A1 nouns and verbs', null, 'menu-flashcards'),
+      item('', null, 'listen', 'Listening', 'Future feature', h('span', { class: 'badge' }, 'coming soon')),
+      item('', null, 'write', 'Writing practice', 'Future feature', h('span', { class: 'badge' }, 'coming soon')),
+      item('', '#/stats', 'stats', 'Stats & settings', 'Progress, appearance, export, updates', null, 'menu-stats'),
+      item('', '#/about', 'info', 'About & credits', 'Data sources and licences', null, 'menu-about')),
     h('p', { class: 'hint' }, `Version ${APP_VERSION}`));
 }
 function chooseLang() {
   setTitle('Choose a language', '#/');
-  $view.append(h('div', { class: 'list' }, Object.entries(LANGS).map(([k, l]) =>
-    h('a', { class: 'item', href: `#/fc/${k}`, 'data-test': `lang-${k}` }, h('span', { class: 'ico' }, l.flag), h('span', { class: 'grow' }, l.name, h('span', { class: 'sub' }, l.native))))));
+  $view.append(h('div', { class: 'langs' }, Object.entries(LANGS).map(([k, l]) =>
+    h('a', { class: `lang-card lang-${k}`, href: `#/fc/${k}`, 'data-test': `lang-${k}`, 'data-glyph': l.glyph },
+      icon(k, 'flag'), h('span', { class: 'grow' }, h('span', { class: 'name' }, l.name), h('span', { class: 'native', lang: k }, l.native)), icon('chev', 'i chev')))));
 }
 async function chooseLevel(lang) {
   setTitle(`${LANGS[lang].name} · level`, '#/fc');
   const idx = await getIndex();
-  $view.append(h('div', { class: 'list' }, LEVELS.map(lv => {
+  $view.append(h('div', { class: 'levels' }, LEVELS.map(lv => {
     const n = idx.packs.filter(p => p.lang === lang && p.level === lv).reduce((a, p) => a + p.count, 0);
     return AVAILABLE[lv] && n
-      ? h('a', { class: 'item', href: `#/fc/${lang}/${lv}`, 'data-test': `level-${lv}` }, h('span', { class: 'ico' }, lv), h('span', { class: 'grow' }, `Level ${lv}`, h('span', { class: 'sub' }, `${n} words`)))
-      : h('button', { class: 'item', disabled: true }, h('span', { class: 'ico' }, lv), h('span', { class: 'grow' }, `Level ${lv}`), h('span', { class: 'badge' }, 'coming soon'));
+      ? h('a', { class: 'level', href: `#/fc/${lang}/${lv}`, 'data-test': `level-${lv}`, 'aria-label': `Level ${lv}, ${n} words` },
+        h('span', { class: 'lv' }, lv), h('span', { class: 'nm' }, LEVEL_NAMES[lv]), h('span', { class: 'sub' }, `${n} words`))
+      : h('button', { class: 'level', disabled: true, 'aria-label': `Level ${lv}, coming soon` },
+        h('span', { class: 'lv' }, lv), h('span', { class: 'nm' }, LEVEL_NAMES[lv]), h('span', { class: 'badge' }, 'soon'));
   })));
 }
 async function chooseStack(lang, lv) {
@@ -109,18 +139,19 @@ async function chooseStack(lang, lv) {
     const ws = await wordStats(`${lang}-${lv}-${k}`);
     const known = ws.filter(w => w.lastResult === 'knew').length;
     const sc = { kind: 'stack', lang, level: lv, stack: k };
-    const pin = h('button', { class: 'pin', 'aria-label': 'Pin to home', 'aria-pressed': String(isPinned(sc)), 'data-test': `pin-${k}`,
-      onclick: e => { e.preventDefault(); e.stopPropagation(); pin.setAttribute('aria-pressed', String(togglePin(sc))); } }, '★');
-    list.append(h('a', { class: 'item', href: `#/fc/${lang}/${lv}/${k}`, 'data-test': `stack-${k}` }, h('span', { class: 'ico' }, s.ico),
-      h('span', { class: 'grow' }, s.name, h('span', { class: 'sub' }, `${p.count} cards · ${ws.length} seen · ${known} known`)), pin));
+    const pin = h('button', { class: 'pin', 'aria-label': `Pin ${s.name} to home`, 'aria-pressed': String(isPinned(sc)), 'data-test': `pin-${k}`,
+      onclick: e => { e.preventDefault(); e.stopPropagation(); pin.setAttribute('aria-pressed', String(togglePin(sc))); } }, icon('star'));
+    list.append(h('a', { class: 'item stack', href: `#/fc/${lang}/${lv}/${k}`, 'data-test': `stack-${k}` }, h('span', { class: 'ico' }, icon(s.ico)),
+      h('span', { class: 'grow' }, s.name, h('span', { class: 'sub' }, `${p.count} cards · ${ws.length} seen · ${known} known`),
+        h('span', { class: 'meter', role: 'presentation' }, h('i', { style: `width:${(100 * known / p.count).toFixed(1)}%` }))), pin));
   }
-  $view.append(list);
+  $view.append(list, h('p', { class: 'pin-hint' }, 'Tap ', icon('star'), ' to pin a deck to the home screen.'));
 }
 
 // deck descriptors: {kind:'stack', lang, level, stack}; future: {kind:'topic', lang, topic}
 function deckInfo(sc) {
   if (sc.kind === 'stack' && LANGS[sc.lang] && STACKS[sc.stack])
-    return { route: `#/fc/${sc.lang}/${sc.level}/${sc.stack}`, flag: LANGS[sc.lang].flag, line1: `${LANGS[sc.lang].name} ${sc.level}`, line2: STACKS[sc.stack].name,
+    return { route: `#/fc/${sc.lang}/${sc.level}/${sc.stack}`, flag: sc.lang, line1: `${LANGS[sc.lang].name} ${sc.level}`, line2: STACKS[sc.stack].name,
       label: `${LANGS[sc.lang].name} ${sc.level} ${STACKS[sc.stack].name.toLowerCase()}` };
   return null;   // unknown kinds (e.g. from a newer version) are kept in storage but not shown
 }
@@ -163,8 +194,20 @@ function back(it, lang) {
     exampleEl(it, lang));
 }
 function cardEl(it, lang) {
-  return h('div', { class: 'card', 'data-id': it.id }, h('div', { class: 'stamp yes' }, 'KNEW'), h('div', { class: 'stamp no' }, 'NOPE'),
+  return h('div', { class: 'card', 'data-id': it.id },
+    h('div', { class: 'wash yes' }), h('div', { class: 'wash no' }),
+    h('div', { class: 'stamp yes' }, icon('check'), 'KNEW'), h('div', { class: 'stamp no' }, icon('again'), 'AGAIN'),
     h('div', { class: 'inner' }, front(it, lang), back(it, lang)));
+}
+// shrink the front word until it fits the card on one line per word (long Russian compounds, phrases)
+function fitWord(card) {
+  const w = card && card.querySelector('.front .word'); if (!w) return;
+  const box = w.parentElement, cs = getComputedStyle(box);
+  const availW = box.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight), availH = box.clientHeight * 0.8;
+  w.style.fontSize = ''; w.classList.remove('tight');
+  let s = parseFloat(getComputedStyle(w).fontSize);
+  while (s > 20 && (w.scrollWidth > availW + 0.5 || w.offsetHeight > availH)) { s -= 2; w.style.fontSize = s + 'px'; }
+  if (w.scrollWidth > availW + 0.5) w.classList.add('tight');
 }
 
 // ---------------- session (swipe right = knew, left = didn't, tap = flip; ↶ undo in the top bar)
@@ -178,13 +221,15 @@ async function session(lang, lv, stack) {
   let i = 0, knew = 0, didnt = 0, busy = false, finished = false;
   const history = [];   // [{i, result, eid: Promise<number>}]
   const $prog = h('div', { class: 'progress' }), $bar = h('i'), stage = h('div', { class: 'stage', 'data-test': 'stage' });
+  try { await Promise.all(['Aa', 'Яя', 'Āā'].map(t => document.fonts.load('600 40px Unbounded', t))); } catch { /* fonts are optional */ }
   const $sess = h('div', { class: 'session' }, $prog, h('div', { class: 'bar' }, $bar), stage);
   $view.append($sess);
   $undo.hidden = false; $undo.onclick = () => undo();
   let cur = null, nxt = null, flipped = false, shownAt = 0;
   const syncUndo = () => { $undo.disabled = !history.length || busy; };
   function updateProg() {
-    $prog.replaceChildren(h('span', {}, `${Math.min(i + 1, deck.length)} / ${deck.length}`), h('span', { 'data-test': 'tally' }, `✓ ${knew}  ✗ ${didnt}`));
+    $prog.replaceChildren(h('span', { class: 'count' }, `${Math.min(i + 1, deck.length)} `, h('small', {}, `/ ${deck.length}`)),
+      h('span', { class: 'tally', 'data-test': 'tally' }, h('b', { class: 'k' }, `✓ ${knew}`), ' ', h('b', { class: 'd' }, `✗ ${didnt}`)));
     $bar.style.width = `${100 * i / deck.length}%`;
     syncUndo();
   }
@@ -194,9 +239,10 @@ async function session(lang, lv, stack) {
     if (nxt) { cur = nxt; cur.classList.remove('next'); } else { cur = cardEl(deck[i], lang); stage.append(cur); }
     nxt = deck[i + 1] ? cardEl(deck[i + 1], lang) : null;
     if (nxt) { nxt.classList.add('next'); stage.prepend(nxt); }
+    fitWord(cur); fitWord(nxt);
     if (enterFrom) {   // undo: the card flies back in from the side it left
       const el = cur;
-      el.style.transition = 'none'; el.style.transform = `translate(${enterFrom * (window.innerWidth + 200)}px, 40px) rotate(${enterFrom * 28}deg)`; el.style.opacity = '0';
+      el.style.transition = 'none'; el.style.transform = REDUCED.matches ? 'none' : `translate(${enterFrom * (window.innerWidth + 200)}px, 40px) rotate(${enterFrom * 28}deg)`; el.style.opacity = '0';
       requestAnimationFrame(() => requestAnimationFrame(() => { el.style.transition = 'transform .3s ease-out, opacity .3s'; el.style.transform = ''; el.style.opacity = ''; }));
     }
     flipped = false; shownAt = performance.now(); attachDrag(cur);
@@ -205,8 +251,9 @@ async function session(lang, lv, stack) {
   async function decide(result, fromDrag = 0) {
     if (busy || !cur || finished) return; busy = true; syncUndo();
     const it = deck[i], el = cur, dir = result === 'knew' ? 1 : -1;
-    el.style.transition = 'transform .32s ease-out, opacity .32s';
-    el.style.transform = `translate(${dir * (window.innerWidth + 200)}px, ${fromDrag || 40}px) rotate(${dir * 28}deg)`;
+    el.style.transition = REDUCED.matches ? 'opacity .2s' : 'transform .34s cubic-bezier(.4,0,.8,.6), opacity .34s';
+    if (!REDUCED.matches) el.style.transform = `translate(${dir * (window.innerWidth + 200)}px, ${fromDrag || 40}px) rotate(${dir * 28}deg)`;
+    el.querySelector(`.wash.${dir > 0 ? 'yes' : 'no'}`).style.opacity = 1;
     el.style.opacity = '0';
     result === 'knew' ? knew++ : didnt++;
     const eid = recordReview({ wordId: it.id, lang, level: lv, stack, word: it.w, result, flipped, ts: new Date().toISOString(),
@@ -229,14 +276,15 @@ async function session(lang, lv, stack) {
   }
   function attachDrag(el) {
     let sx = 0, sy = 0, dx = 0, dy = 0, t0 = 0, down = false, moved = false, target = null;
-    const yes = el.querySelector('.stamp.yes'), no = el.querySelector('.stamp.no');
+    const yes = el.querySelector('.stamp.yes'), no = el.querySelector('.stamp.no'), wy = el.querySelector('.wash.yes'), wn = el.querySelector('.wash.no');
     el.addEventListener('pointerdown', e => { if (busy) return; down = true; moved = false; target = e.target; sx = e.clientX; sy = e.clientY; dx = dy = 0; t0 = performance.now(); el.setPointerCapture(e.pointerId); el.style.transition = 'none'; el.classList.add('dragging'); });
     el.addEventListener('pointermove', e => {
       if (!down) return; dx = e.clientX - sx; dy = e.clientY - sy;
       if (Math.abs(dx) > 6 || Math.abs(dy) > 6) moved = true;
       if (!moved) return;
-      el.style.transform = `translate(${dx}px, ${dy * 0.3}px) rotate(${dx / 18}deg)`;
-      yes.style.opacity = Math.max(0, Math.min(1, dx / 100)); no.style.opacity = Math.max(0, Math.min(1, -dx / 100));
+      el.style.transform = REDUCED.matches ? `translate(${dx}px, 0)` : `translate(${dx}px, ${dy * 0.3}px) rotate(${dx / 18}deg)`;
+      const py = Math.max(0, Math.min(1, dx / 100)), pn = Math.max(0, Math.min(1, -dx / 100));
+      yes.style.opacity = py; no.style.opacity = pn; wy.style.opacity = py * 0.9; wn.style.opacity = pn * 0.9;
       if (nxt) nxt.style.transform = `scale(${0.94 + Math.min(Math.abs(dx) / 2000, 0.06)}) translateY(${14 - Math.min(Math.abs(dx) / 20, 14)}px)`;
     });
     const end = () => {
@@ -248,7 +296,7 @@ async function session(lang, lv, stack) {
         flip(); return;
       }
       if (Math.abs(dx) > thr || (v > 0.6 && Math.abs(dx) > 40)) return decide(dx > 0 ? 'knew' : 'didnt', dy * 0.3);
-      el.style.transition = 'transform .3s cubic-bezier(.2,.9,.3,1.3)'; el.style.transform = ''; yes.style.opacity = no.style.opacity = 0;
+      el.style.transition = REDUCED.matches ? 'none' : 'transform .38s cubic-bezier(.2,.9,.3,1.3)'; el.style.transform = ''; yes.style.opacity = no.style.opacity = wy.style.opacity = wn.style.opacity = 0;
       if (nxt) nxt.style.transform = '';
     };
     el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
@@ -258,17 +306,24 @@ async function session(lang, lv, stack) {
     else if ((e.key === ' ' || e.key === 'Enter') && !finished) { e.preventDefault(); cur && flip(); }
     else if (e.key === 'Backspace' || (e.key === 'z' && (e.ctrlKey || e.metaKey))) { e.preventDefault(); undo(); }
   };
-  document.addEventListener('keydown', onKey);
-  cleanup = () => document.removeEventListener('keydown', onKey);
+  const onResize = () => { fitWord(cur); fitWord(nxt); };
+  document.addEventListener('keydown', onKey); window.addEventListener('resize', onResize); document.fonts.addEventListener('loadingdone', onResize);
+  cleanup = () => { document.removeEventListener('keydown', onKey); window.removeEventListener('resize', onResize); document.fonts.removeEventListener('loadingdone', onResize); };
   function finish() {
     finished = true; cur = nxt = null;   // the summary keeps ↶ (and Backspace) so the last card can still be undone
     const total = knew + didnt;
     syncUndo();
-    $view.replaceChildren(h('div', { class: 'summary', 'data-test': 'summary' },
-      h('div', { class: 'big' }, total ? `${Math.round(100 * knew / total)}%` : '—'),
-      h('div', {}, `${total} cards reviewed · ✓ ${knew} · ✗ ${didnt}`),
-      h('button', { class: 'btn primary', onclick: render }, 'Practice again'),
-      h('a', { class: 'btn ghost', href: `#/fc/${lang}/${lv}` }, 'Back to stacks')));
+    const pct = total ? knew / total : 0, C = 2 * Math.PI * 52;
+    const ring = h('div', { class: 'ring' }); ring.innerHTML = `<svg viewBox="0 0 120 120" aria-hidden="true"><circle class="track" cx="60" cy="60" r="52" fill="none" stroke-width="10"/><circle class="val" cx="60" cy="60" r="52" fill="none" stroke-width="10" stroke-dasharray="${C}" stroke-dashoffset="${C}"/></svg>`;
+    ring.append(h('div', { class: 'big' }, total ? `${Math.round(100 * pct)}%` : '—'));
+    $view.replaceChildren(h('div', { class: 'summary', 'data-test': 'summary' }, ring,
+      h('h2', {}, 'Deck complete'),
+      h('p', { class: 'sub' }, `${total} cards reviewed`),
+      h('span', { class: 'tally' }, h('b', { class: 'k' }, `✓ ${knew} knew`), ' ', h('b', { class: 'd' }, `✗ ${didnt} again`)),
+      h('div', { class: 'btns' },
+        h('button', { class: 'btn primary', onclick: render }, icon('again'), 'Practice again'),
+        h('a', { class: 'btn ghost', href: `#/fc/${lang}/${lv}` }, 'Back to stacks'))));
+    requestAnimationFrame(() => requestAnimationFrame(() => { const v = ring.querySelector('.val'); if (v) v.style.strokeDashoffset = String(C * (1 - pct)); }));
   }
   show();
 }
@@ -292,18 +347,23 @@ async function statsScreen() {
       h('td', {}, ws.filter(w => w.lastResult === 'knew').length), h('td', {}, s ? `${Math.round(100 * r / s)}%` : '—')));
   }
   const stamp = new Date().toISOString().slice(0, 10);
+  const seg = h('div', { class: 'seg', role: 'group', 'aria-label': 'Theme' });
+  const drawSeg = () => seg.replaceChildren(...[['dark', 'moon', 'Dark'], ['light', 'sun', 'Light'], ['system', 'auto', 'System']].map(([k, ic, label]) =>
+    h('button', { 'aria-pressed': String(getTheme() === k), 'data-test': `theme-${k}`, onclick: () => { localStorage.setItem(THEME_KEY, k); applyTheme(); drawSeg(); } }, icon(ic), label)));
+  drawSeg();
   $view.append(
-    h('div', { class: 'panel' }, h('h2', {}, 'Progress'), tbl, h('p', { class: 'hint', 'data-test': 'event-count' }, `${nEv.live} review events stored on this device${nEv.undone ? ` (+${nEv.undone} undone, excluded)` : ''}`)),
+    h('div', { class: 'panel' }, h('h2', {}, 'Progress'), h('div', { class: 'tablewrap' }, tbl), h('p', { class: 'hint', 'data-test': 'event-count' }, `${nEv.live} review events stored on this device${nEv.undone ? ` (+${nEv.undone} undone, excluded)` : ''}`)),
+    h('div', { class: 'panel' }, h('h2', {}, 'Appearance'), seg),
     h('div', { class: 'panel' }, h('h2', {}, 'Export'),
       h('div', { class: 'row' },
-        h('button', { class: 'btn primary', 'data-test': 'export-json', onclick: async () => download(`flashcards-${stamp}.json`, JSON.stringify({ app: 'langapp', version: APP_VERSION, exportedAt: new Date().toISOString(), events: await allEvents(), words: await allWords() }, null, 1), 'application/json') }, 'Export JSON'),
+        h('button', { class: 'btn primary', 'data-test': 'export-json', onclick: async () => download(`flashcards-${stamp}.json`, JSON.stringify({ app: 'langapp', version: APP_VERSION, exportedAt: new Date().toISOString(), events: await allEvents(), words: await allWords() }, null, 1), 'application/json') }, icon('download'), 'Export JSON'),
         h('button', { class: 'btn ghost', 'data-test': 'export-csv', onclick: async () => download(`flashcards-events-${stamp}.csv`, toCSV(await allEvents(), ['eid', 'ts', 'wordId', 'word', 'lang', 'level', 'stack', 'result', 'flipped', 'ms', 'sessionId', 'appVersion', 'undone', 'undoneAt']), 'text/csv') }, 'Events CSV'),
         h('button', { class: 'btn ghost', 'data-test': 'export-words-csv', onclick: async () => download(`flashcards-words-${stamp}.csv`, toCSV(await allWords(), ['id', 'lang', 'level', 'stack', 'shown', 'right', 'left', 'flips', 'firstSeen', 'lastSeen', 'lastResult']), 'text/csv') }, 'Words CSV'))),
     h('div', { class: 'panel' }, h('h2', {}, 'App'),
-      h('p', { class: 'hint', style: 'text-align:left' }, `Version ${APP_VERSION}`),
       h('div', { class: 'row' },
-        h('button', { class: 'btn ghost', onclick: () => checkForUpdate(true) }, 'Check for updates'),
-        h('button', { class: 'btn no', onclick: async () => { if (confirm('Delete all review history on this device?')) { await clearAll(); render(); } } }, 'Reset stats'))));
+        h('button', { class: 'btn ghost', onclick: () => checkForUpdate(true) }, icon('refresh'), 'Check for updates'),
+        h('button', { class: 'btn no', onclick: async () => { if (confirm('Delete all review history on this device?')) { await clearAll(); render(); } } }, icon('trash'), 'Reset stats')),
+      h('p', { class: 'hint' }, `Version ${APP_VERSION}`)));
 }
 async function about() {
   setTitle('About & credits', '#/');
