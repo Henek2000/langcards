@@ -1,16 +1,14 @@
-import { recordReview, undoReview, wordStats, allWords, allEvents, countEvents, clearAll } from './db.js';
-import { order } from './deck.js';
+import { recordReview, undoReview, wordStats, allWords, allEvents, clearAll, importBackup } from './db.js';
+import { buildRun, split, wordState, RUN_SIZE } from './deck.js';
+import { progress } from './progress.js';
 import { APP_VERSION } from './version.js';
-import { getShortcuts, isPinned, togglePin, removeShortcut, deckKey } from './shortcuts.js';
 import { icon } from './icons.js';
 
-const LANGS = { fr: { name: 'French', native: 'Français', glyph: 'Fr' }, ru: { name: 'Russian', native: 'Русский', glyph: 'Ру' } };
-const LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
-const LEVEL_NAMES = { A1: 'Beginner', A2: 'Elementary', B1: 'Intermediate', B2: 'Upper intermediate', C1: 'Advanced', C2: 'Proficient' };
-const AVAILABLE = { A1: true };
-const STACKS = { noun: { name: 'Nouns', ico: 'noun' }, verb: { name: 'Verbs', ico: 'verb' } };
+const LANGS = { fr: { name: 'French', code: 'FR' }, ru: { name: 'Russian', code: 'RU' } };
+const STACKS = { noun: 'Nouns', verb: 'Verbs' };
 const GENDER = { fr: { m: 'masculine', f: 'feminine', mf: 'masc./fem.' }, ru: { m: 'masculine', f: 'feminine', n: 'neuter', mf: 'common' } };
 const ASPECT = { impf: 'imperfective', pf: 'perfective', 'impf/pf': 'impf. & pf.' };
+const MODES = { run: 'Run', unknown: 'Unknown only', retry: 'Retry missed' };
 const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)');
 
 const $view = document.getElementById('view'), $title = document.getElementById('title'), $back = document.getElementById('back'), $undo = document.getElementById('undo');
@@ -27,138 +25,119 @@ let index = null;
 async function getIndex() { if (!index) index = await (await fetch('data/index.json')).json(); return index; }
 const packCache = {};
 async function getPack(file) { if (!packCache[file]) packCache[file] = await (await fetch('data/' + file)).json(); return packCache[file]; }
+const packKey = p => `${p.lang}-${p.level}-${p.stack}`;
+const deckName = p => `${LANGS[p.lang].name} ${STACKS[p.stack].toLowerCase()}`;
+const pct = (n, d) => (d ? Math.floor(100 * n / d) : 0);   // floor: a deck only reads 100% when every word is known
 function setTitle(t, back) { $title.textContent = t; $back.hidden = !back; $back.onclick = () => { location.hash = back; }; $undo.hidden = true; $undo.onclick = null; }
 $back.replaceChildren(icon('back')); $undo.replaceChildren(icon('undo'), h('span', { class: 'lbl' }, 'Undo'));
+const buzz = p => { try { navigator.vibrate && navigator.vibrate(p); } catch { /* not supported */ } };
 
-// ---------------- theme (dark default; light or follow the system), kept in localStorage
-const THEME_KEY = 'langapp.theme.v1', THEME_COLORS = { dark: '#0b0d12', light: '#f2eee6' };
-const getTheme = () => { const t = localStorage.getItem(THEME_KEY); return t === 'light' || t === 'system' ? t : 'dark'; };
-function applyTheme() {
-  const t = getTheme(), eff = t === 'system' ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : t;
-  document.documentElement.dataset.theme = eff;
-  document.querySelector('meta[name=theme-color]').setAttribute('content', THEME_COLORS[eff]);
-}
-matchMedia('(prefers-color-scheme: light)').addEventListener('change', applyTheme);
-applyTheme();
-
-// ---------------- screens
+// ---------------- routing
+// Each render gets a sequence number; a screen still loading when the hash changes sees a newer number after its awaits and stops,
+// so two screens never stack up and a stale session never registers key handlers.
 const routes = [
-  [/^#?\/?$/, menu],
-  [/^#\/fc$/, chooseLang],
-  [/^#\/fc\/(fr|ru)$/, chooseLevel],
-  [/^#\/fc\/(fr|ru)\/(A1|A2|B1|B2|C1|C2)$/, chooseStack],
-  [/^#\/fc\/(fr|ru)\/(A1)\/(noun|verb)$/, session],
-  [/^#\/stats$/, statsScreen],
+  [/^#?\/?$/, home],
+  [/^#\/deck\/(fr|ru)-(A1)-(noun|verb)$/, deckScreen],
+  [/^#\/deck\/(fr|ru)-(A1)-(noun|verb)\/(run|unknown|retry)$/, session],
+  [/^#\/progress$/, progressScreen],
   [/^#\/about$/, about],
 ];
-let cleanup = null, prevHash = null, curHash = null;
+let cleanup = null, seq = 0;
+const stale = my => my !== seq;
 async function render() {
+  const my = ++seq;
   if (cleanup) { cleanup(); cleanup = null; }
-  const hash = location.hash || '#/';
-  if (hash !== curHash) { prevHash = curHash; curHash = hash; }
-  const lang = (hash.match(/^#\/fc\/(fr|ru)/) || [])[1];
-  document.body.className = [lang ? `lang-${lang}` : '', routes[0][0].test(hash) ? 'route-home' : ''].filter(Boolean).join(' ');
+  let hash = location.hash || '#/';
+  const old = hash.match(/^#\/fc\/(fr|ru)\/(A1)\/(noun|verb)$/);            // links and bookmarks from v0.4
+  if (old) { location.replace(`#/deck/${old[1]}-${old[2]}-${old[3]}`); return; }
+  const lang = (hash.match(/^#\/deck\/(fr|ru)/) || [])[1];
+  document.body.className = [lang && `lang-${lang}`, routes[0][0].test(hash) && 'route-home'].filter(Boolean).join(' ');
   for (const [re, fn] of routes) {
     const m = hash.match(re);
-    if (m) { $view.replaceChildren(); $view.classList.remove('enter'); void $view.offsetWidth; $view.classList.add('enter'); await fn(...m.slice(1)); return; }
+    if (m) { $view.replaceChildren(); $view.classList.remove('enter'); void $view.offsetWidth; $view.classList.add('enter'); window.scrollTo(0, 0); await fn(my, ...m.slice(1)); return; }
   }
-  location.hash = '#/';
+  location.replace('#/');
 }
 window.addEventListener('hashchange', render);
 
-// ---------------- home shortcuts (pinned decks); long-press a tile to edit, × removes
-function shortcutTile(sc, editing, rerender) {
-  const d = deckInfo(sc);
-  if (!d) return null;
-  let timer = null, long = false;
-  const tile = h('a', { class: `tile lang-${sc.lang}`, href: editing ? null : d.route, 'data-test': `shortcut-${deckKey(sc)}`, title: d.label },
-    h('span', { class: 'tile-top' }, icon(d.flag, 'ico flagdot'), icon(d.ico, 'i topic')), h('span', { class: 'lbl' }, d.line1, h('b', {}, d.line2)),
-    editing ? h('button', { class: 'rm', 'aria-label': `Remove ${d.label}`, 'data-test': `rm-${deckKey(sc)}`,
-      onclick: e => { e.preventDefault(); e.stopPropagation(); removeShortcut(sc); rerender(getShortcuts().length > 0); } }, icon('x')) : null);
-  tile.addEventListener('pointerdown', () => { long = false; clearTimeout(timer); timer = setTimeout(() => { long = true; rerender(true); }, 550); });
-  for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) tile.addEventListener(ev, () => clearTimeout(timer));
-  tile.addEventListener('click', e => { if (long || editing) e.preventDefault(); });
-  tile.addEventListener('contextmenu', e => e.preventDefault());
-  return tile;
+// ---------------- shared pieces
+function meter(c, total, cls = '') {
+  // segmented bar: known | unknown | new
+  const seg = (k, n) => (n ? h('i', { class: k, style: `flex-grow:${n}` }) : null);
+  return h('div', { class: `meter ${cls}`, role: 'img', 'aria-label': `${c.known} known, ${c.unknown} unknown, ${c.new} new of ${total}` },
+    seg('known', c.known), seg('unknown', c.unknown), seg('new', c.new));
 }
-function shortcutsEl() {
-  const box = h('div', { class: 'shortcuts', 'data-test': 'shortcuts' });
-  const draw = editing => {
-    const tiles = getShortcuts().map(sc => shortcutTile(sc, editing, draw)).filter(Boolean);
-    box.classList.toggle('editing', editing);
-    box.replaceChildren(...tiles,
-      editing ? h('button', { class: 'tile add done', 'aria-label': 'Done editing', 'data-test': 'shortcuts-done', onclick: () => draw(false) }, icon('check'))
-        : h('a', { class: 'tile add', href: '#/fc', 'aria-label': 'Add shortcut', 'data-test': 'shortcut-add' }, icon('plus')),
-      ...(!tiles.length && !editing ? [h('p', { class: 'sc-empty' }, 'Pin a deck with ', icon('star'), ' to start it here in one tap.')] : []));
-  };
-  draw(false);
-  return box;
-}
-const logo = () => { const s = h('span'); s.innerHTML = '<img class="logo" src="icons/lc-mark.svg" alt="" width="52" height="52">'; return s.firstChild; };
-function menu() {
-  setTitle('Flashcards', null);
-  const item = (cls, href, ico, title, sub, extra, test) => h(href ? 'a' : 'button', { class: `item ${cls}`, href, disabled: !href, 'data-test': test },
-    h('span', { class: 'ico' }, icon(ico)), h('span', { class: 'grow' }, title, h('span', { class: 'sub' }, sub)), extra || icon('chev', 'i chev'));
-  $view.append(
-    h('header', { class: 'hero' }, logo(), h('div', {}, h('h2', {}, 'Flashcards'), h('p', {}, 'French & Russian · Spanish + English'))),
-    h('h3', { class: 'section-label' }, 'Pinned decks'), shortcutsEl(),
-    h('h3', { class: 'section-label' }, 'Practice'),
-    h('div', { class: 'list' },
-      item('feature', '#/fc', 'cards', 'Flashcards', 'Swipe through A1 nouns and verbs', null, 'menu-flashcards'),
-      item('', null, 'listen', 'Listening', 'Future feature', h('span', { class: 'badge' }, 'coming soon')),
-      item('', null, 'write', 'Writing practice', 'Future feature', h('span', { class: 'badge' }, 'coming soon')),
-      item('', '#/stats', 'stats', 'Stats & settings', 'Progress, appearance, export, updates', null, 'menu-stats'),
-      item('', '#/about', 'info', 'About & credits', 'Data sources and licences', null, 'menu-about')),
-    h('p', { class: 'hint' }, `Version ${APP_VERSION}`));
-}
-function chooseLang() {
-  setTitle('Choose a language', '#/');
-  $view.append(h('div', { class: 'langs' }, Object.entries(LANGS).map(([k, l]) =>
-    h('a', { class: `lang-card lang-${k}`, href: `#/fc/${k}`, 'data-test': `lang-${k}`, 'data-glyph': l.glyph },
-      icon(k, 'flag'), h('span', { class: 'grow' }, h('span', { class: 'name' }, l.name), h('span', { class: 'native', lang: k }, l.native)), icon('chev', 'i chev')))));
-}
-async function chooseLevel(lang) {
-  setTitle(`${LANGS[lang].name} · level`, '#/fc');
-  const idx = await getIndex();
-  $view.append(h('div', { class: 'levels' }, LEVELS.map(lv => {
-    const n = idx.packs.filter(p => p.lang === lang && p.level === lv).reduce((a, p) => a + p.count, 0);
-    return AVAILABLE[lv] && n
-      ? h('a', { class: 'level', href: `#/fc/${lang}/${lv}`, 'data-test': `level-${lv}`, 'aria-label': `Level ${lv}, ${n} words` },
-        h('span', { class: 'lv' }, lv), h('span', { class: 'nm' }, LEVEL_NAMES[lv]), h('span', { class: 'sub' }, `${n} words`))
-      : h('button', { class: 'level', disabled: true, 'aria-label': `Level ${lv}, coming soon` },
-        h('span', { class: 'lv' }, lv), h('span', { class: 'nm' }, LEVEL_NAMES[lv]), h('span', { class: 'badge' }, 'soon'));
-  })));
-}
-async function chooseStack(lang, lv) {
-  setTitle(`${LANGS[lang].name} ${lv}`, `#/fc/${lang}`);
-  const idx = await getIndex();
-  const list = h('div', { class: 'decks' });
-  for (const [k, s] of Object.entries(STACKS)) {
-    const p = idx.packs.find(p => p.lang === lang && p.level === lv && p.stack === k);
-    if (!p) continue;
-    const ws = await wordStats(`${lang}-${lv}-${k}`);
-    const known = ws.filter(w => w.lastResult === 'knew').length, pct = Math.round(100 * known / p.count);
-    const sc = { kind: 'stack', lang, level: lv, stack: k };
-    const pin = h('button', { class: 'pin', 'aria-label': `Pin ${s.name} to home`, 'aria-pressed': String(isPinned(sc)), 'data-test': `pin-${k}`,
-      onclick: e => { e.preventDefault(); e.stopPropagation(); pin.setAttribute('aria-pressed', String(togglePin(sc))); } }, icon('star'));
-    list.append(h('a', { class: `deck lang-${lang}`, href: `#/fc/${lang}/${lv}/${k}`, 'data-test': `stack-${k}` },
-      h('span', { class: 'deck-top' }, h('span', { class: 'ico' }, icon(s.ico)), h('span', { class: 'lvl', 'aria-label': `Level ${lv}` }, lv), pin),
-      h('span', { class: 'deck-name' }, s.name),
-      h('span', { class: 'sub' }, `${p.count} cards · ${ws.length} seen · ${known} known`),
-      h('span', { class: 'deck-foot' }, h('span', { class: 'meter', role: 'presentation' }, h('i', { style: `width:${(100 * known / p.count).toFixed(1)}%` })),
-        h('span', { class: 'pct' }, `${pct}%`)),
-      icon('chev', 'i chev')));
+const counts = by => ({ known: by.known.length, unknown: by.unknown.length, new: by.new.length });
+const stat = (n, label, test) => h('div', { class: 'stat', 'data-test': test }, h('b', {}, String(n)), h('span', {}, label));
+
+// ---------------- home: every deck with its progress
+async function home(my) {
+  setTitle('Langcards', null);
+  const [idx, words, evs] = [await getIndex(), await allWords(), await allEvents()];
+  if (stale(my)) return;
+  const pr = progress(evs, 1), total = idx.packs.reduce((a, p) => a + p.count, 0);
+  const decks = h('div', { class: 'decks' });
+  for (const p of idx.packs) {
+    const ws = words.filter(w => w.pack === packKey(p));
+    const c = { known: ws.filter(w => wordState(w) === 'known').length, unknown: ws.filter(w => wordState(w) === 'unknown').length };
+    c.new = p.count - c.known - c.unknown;
+    const done = c.known === p.count;
+    decks.append(h('a', { class: `deck lang-${p.lang}${done ? ' done' : ''}`, href: `#/deck/${packKey(p)}`, 'data-test': `deck-${packKey(p)}` },
+      h('span', { class: 'deck-top' }, h('span', { class: 'code' }, LANGS[p.lang].code), h('span', { class: 'lvl' }, p.level),
+        h('span', { class: 'pct', 'data-test': 'deck-pct' }, `${pct(c.known, p.count)}%`)),
+      h('span', { class: 'deck-name' }, STACKS[p.stack]),
+      meter(c, p.count),
+      h('span', { class: 'deck-sub' }, done ? '■ Complete' : `${c.known} known · ${c.unknown} unknown · ${c.new} new`)));
   }
-  $view.append(h('div', { class: `deck-hero lang-${lang}` }, icon(lang, 'flag'), h('span', { class: 'grow' }, h('span', { class: 'name', lang }, LANGS[lang].native),
-    h('span', { class: 'meta' }, `${lv} · ${LEVEL_NAMES[lv]}`))), list, h('p', { class: 'pin-hint' }, 'Tap ', icon('star'), ' to pin a deck to the home screen.'));
+  $view.append(
+    h('header', { class: 'masthead' }, h('h2', {}, 'Lang', h('br'), 'cards'), h('p', {}, 'French & Russian A1 · learn the words')),
+    h('div', { class: 'stats' }, stat(words.filter(w => wordState(w) === 'known').length, `of ${total} known`, 'home-known'), stat(pr.streak, 'day streak', 'home-streak'),
+      stat(pr.todayReviews, 'cards today', 'home-today')),
+    h('h3', { class: 'label' }, 'Decks'), decks,
+    h('nav', { class: 'links' },
+      h('a', { class: 'link', href: '#/progress', 'data-test': 'menu-progress' }, 'Progress', icon('arrow')),
+      h('a', { class: 'link', href: '#/about', 'data-test': 'menu-about' }, 'About & credits', icon('arrow'))),
+    h('p', { class: 'hint' }, `v${APP_VERSION}`));
 }
 
-// deck descriptors: {kind:'stack', lang, level, stack}; future: {kind:'topic', lang, topic}
-function deckInfo(sc) {
-  if (sc.kind === 'stack' && LANGS[sc.lang] && STACKS[sc.stack])
-    return { route: `#/fc/${sc.lang}/${sc.level}/${sc.stack}`, flag: sc.lang, line1: `${LANGS[sc.lang].name} ${sc.level}`, line2: STACKS[sc.stack].name, ico: STACKS[sc.stack].ico,
-      label: `${LANGS[sc.lang].name} ${sc.level} ${STACKS[sc.stack].name.toLowerCase()}` };
-  return null;   // unknown kinds (e.g. from a newer version) are kept in storage but not shown
+// ---------------- deck: progress, start a run, browse words by state
+async function deckScreen(my, lang, lv, stack) {
+  const key = `${lang}-${lv}-${stack}`;
+  setTitle(deckName({ lang, stack }), '#/');
+  const meta = (await getIndex()).packs.find(p => packKey(p) === key);
+  const [pack, ws] = [await getPack(meta.file), await wordStats(key)];
+  if (stale(my)) return;
+  const stats = Object.fromEntries(ws.map(s => [s.id, s]));
+  const by = split(pack.items, stats), c = counts(by), done = c.known === pack.items.length;
+  const btn = (mode, label, n, cls) => h('a', { class: `btn ${cls}`, href: `#/deck/${key}/${mode}`, 'data-test': `start-${mode}` }, icon('play'), label, h('small', {}, `· ${n}`));
+  const head = h('section', { class: `deck-head${done ? ' done' : ''}` },
+    h('div', { class: 'big-pct', 'data-test': 'deck-big-pct' }, `${pct(c.known, pack.items.length)}`, h('small', {}, '%')),
+    h('p', { class: 'deck-of' }, `${c.known} of ${pack.items.length} words known`),
+    meter(c, pack.items.length, 'lg'),
+    h('ul', { class: 'legend' }, h('li', { class: 'known' }, `${c.known} known`), h('li', { class: 'unknown' }, `${c.unknown} unknown`), h('li', { class: 'new' }, `${c.new} new`)),
+    done ? h('p', { class: 'complete-badge', 'data-test': 'deck-complete' }, 'Deck complete') : null);
+  const actions = h('div', { class: 'actions' },
+    btn('run', done ? 'Review run' : 'Start run', Math.min(RUN_SIZE, pack.items.length), 'primary'),
+    c.unknown ? btn('unknown', 'Unknown only', Math.min(RUN_SIZE, c.unknown), '') : null);
+  // word list with tabs
+  const tabs = h('div', { class: 'tabs', role: 'tablist' }), list = h('ol', { class: 'words', 'data-test': 'word-list' });
+  const sorted = {
+    unknown: by.unknown.slice().sort((a, b) => (stats[a.id].lastSeen > stats[b.id].lastSeen ? -1 : 1)),
+    known: by.known.slice().sort((a, b) => (stats[a.id].lastSeen > stats[b.id].lastSeen ? -1 : 1)), new: by.new };
+  let tab = c.unknown ? 'unknown' : c.known ? 'known' : 'new';
+  const drawList = (limit = 60) => {
+    const items = sorted[tab];
+    tabs.replaceChildren(...['unknown', 'known', 'new'].map(k => h('button', { role: 'tab', class: k, 'aria-selected': String(k === tab), 'data-test': `tab-${k}`,
+      onclick: () => { tab = k; drawList(); } }, k, h('b', {}, String(c[k])))));
+    list.replaceChildren(...items.slice(0, limit).map(it => {
+      const s = stats[it.id];
+      return h('li', { class: wordState(s) }, h('span', { class: 'w', lang }, it.a ? h('span', { class: 'article' }, it.a + ' ') : null, it.d || it.w),
+        h('span', { class: 'g' }, (it.en[0] || it.es[0] || '—')), s ? h('span', { class: 'n' }, `${s.right}✓ ${s.left}✗`) : null);
+    }), ...(items.length > limit ? [h('li', { class: 'more' }, h('button', { class: 'btn', 'data-test': 'show-all', onclick: () => drawList(Infinity) }, `Show all ${items.length}`))] : []),
+    ...(!items.length ? [h('li', { class: 'empty' }, tab === 'unknown' ? 'No unknown words. Nice.' : tab === 'known' ? 'Nothing known yet. Start a run.' : 'You have seen every word.')] : []));
+  };
+  drawList();
+  $view.append(head, actions, h('h3', { class: 'label' }, 'Words'), tabs, list);
 }
 
 // ---------------- card rendering
@@ -201,7 +180,7 @@ function back(it, lang) {
 function cardEl(it, lang) {
   return h('div', { class: 'card', 'data-id': it.id },
     h('div', { class: 'wash yes' }), h('div', { class: 'wash no' }),
-    h('div', { class: 'stamp yes' }, icon('check'), 'KNEW'), h('div', { class: 'stamp no' }, icon('again'), 'AGAIN'),
+    h('div', { class: 'stamp yes' }, 'Knew'), h('div', { class: 'stamp no' }, 'Again'),
     h('div', { class: 'inner' }, front(it, lang), back(it, lang)));
 }
 // shrink the front word until it fits the card on one line per word (long Russian compounds, phrases)
@@ -215,26 +194,33 @@ function fitWord(card) {
   if (w.scrollWidth > availW + 0.5) w.classList.add('tight');
 }
 
-// ---------------- session (swipe right = knew, left = didn't, tap = flip; ↶ undo in the top bar)
-async function session(lang, lv, stack) {
-  const meta = (await getIndex()).packs.find(p => p.lang === lang && p.level === lv && p.stack === stack);
-  setTitle(`${LANGS[lang].name} ${lv} · ${STACKS[stack].name}`, prevHash === '#/' ? '#/' : `#/fc/${lang}/${lv}`);
-  const pack = await getPack(meta.file);
-  const stats = Object.fromEntries((await wordStats(`${lang}-${lv}-${stack}`)).map(s => [s.id, s]));
-  const deck = order(pack.items, stats);
+// ---------------- practice run (swipe right = knew, left = again, tap = flip; ↶ undo in the top bar)
+let retryIds = null;   // word ids for a "retry missed" run, set by the results screen
+async function session(my, lang, lv, stack, mode) {
+  const key = `${lang}-${lv}-${stack}`, deckHref = `#/deck/${key}`;
+  const meta = (await getIndex()).packs.find(p => packKey(p) === key);
+  const [pack, ws] = [await getPack(meta.file), await wordStats(key)];
+  if (stale(my)) return;
+  const stats = Object.fromEntries(ws.map(s => [s.id, s]));
+  const deck = mode === 'retry' ? pack.items.filter(it => retryIds && retryIds.includes(it.id)) : buildRun(pack.items, stats, mode);
+  if (!deck.length) { location.replace(deckHref); return; }
+  setTitle(`${deckName({ lang, stack })} · ${MODES[mode]}`, deckHref);
+  const before = counts(split(pack.items, stats));
   const sessionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
   let i = 0, knew = 0, didnt = 0, busy = false, finished = false;
   const history = [];   // [{i, result, eid: Promise<number>}]
   const $prog = h('div', { class: 'progress' }), $bar = h('i'), stage = h('div', { class: 'stage', 'data-test': 'stage' });
-  try { await Promise.all(['Aa', 'Яя', 'Āā'].map(t => document.fonts.load('600 40px Unbounded', t))); } catch { /* fonts are optional */ }
-  const $sess = h('div', { class: 'session' }, $prog, h('div', { class: 'bar' }, $bar), stage);
+  // screen-reader / switch access: the same actions as the swipes, visually hidden
+  const sr = h('div', { class: 'sr-only' },
+    h('button', { onclick: () => cur && flip() }, 'Show answer'), h('button', { onclick: () => decide('didnt') }, 'Again'), h('button', { onclick: () => decide('knew') }, 'Knew it'));
+  const $sess = h('div', { class: 'session' }, $prog, h('div', { class: 'bar' }, $bar), stage, sr);
   $view.append($sess);
   $undo.hidden = false; $undo.onclick = () => undo();
   let cur = null, nxt = null, flipped = false, shownAt = 0;
   const syncUndo = () => { $undo.disabled = !history.length || busy; };
   function updateProg() {
-    $prog.replaceChildren(h('span', { class: 'count' }, `${Math.min(i + 1, deck.length)} `, h('small', {}, `/ ${deck.length}`)),
-      h('span', { class: 'tally', 'data-test': 'tally' }, h('b', { class: 'k' }, `✓ ${knew}`), ' ', h('b', { class: 'd' }, `✗ ${didnt}`)));
+    $prog.replaceChildren(h('span', { class: 'count' }, `${Math.min(i + 1, deck.length)}`, h('small', {}, ` / ${deck.length}`)),
+      h('span', { class: 'tally', 'data-test': 'tally' }, h('b', { class: 'k' }, `✓ ${knew}`), h('b', { class: 'd' }, `✗ ${didnt}`)));
     $bar.style.width = `${100 * i / deck.length}%`;
     syncUndo();
   }
@@ -247,8 +233,8 @@ async function session(lang, lv, stack) {
     fitWord(cur); fitWord(nxt);
     if (enterFrom) {   // undo: the card flies back in from the side it left
       const el = cur;
-      el.style.transition = 'none'; el.style.transform = REDUCED.matches ? 'none' : `translate(${enterFrom * (window.innerWidth + 200)}px, 40px) rotate(${enterFrom * 28}deg)`; el.style.opacity = '0';
-      requestAnimationFrame(() => requestAnimationFrame(() => { el.style.transition = 'transform .3s ease-out, opacity .3s'; el.style.transform = ''; el.style.opacity = ''; }));
+      el.style.transition = 'none'; el.style.transform = REDUCED.matches ? 'none' : `translate(${enterFrom * (window.innerWidth + 200)}px, 40px) rotate(${enterFrom * 20}deg)`; el.style.opacity = '0';
+      requestAnimationFrame(() => requestAnimationFrame(() => { el.style.transition = 'transform .28s ease-out, opacity .28s'; el.style.transform = ''; el.style.opacity = ''; }));
     }
     flipped = false; shownAt = performance.now(); attachDrag(cur);
   }
@@ -256,17 +242,19 @@ async function session(lang, lv, stack) {
   async function decide(result, fromDrag = 0) {
     if (busy || !cur || finished) return; busy = true; syncUndo();
     const it = deck[i], el = cur, dir = result === 'knew' ? 1 : -1;
-    el.style.transition = REDUCED.matches ? 'opacity .2s' : 'transform .34s cubic-bezier(.4,0,.8,.6), opacity .34s';
-    if (!REDUCED.matches) el.style.transform = `translate(${dir * (window.innerWidth + 200)}px, ${fromDrag || 40}px) rotate(${dir * 28}deg)`;
+    el.style.transition = REDUCED.matches ? 'opacity .2s' : 'transform .3s cubic-bezier(.4,0,.8,.6), opacity .3s';
+    if (!REDUCED.matches) el.style.transform = `translate(${dir * (window.innerWidth + 200)}px, ${fromDrag || 40}px) rotate(${dir * 20}deg)`;
     el.querySelector(`.wash.${dir > 0 ? 'yes' : 'no'}`).style.opacity = 1;
+    el.querySelector(`.stamp.${dir > 0 ? 'yes' : 'no'}`).style.opacity = 1;
     el.style.opacity = '0';
     result === 'knew' ? knew++ : didnt++;
+    buzz(result === 'knew' ? 8 : [6, 40, 6]);
     const eid = recordReview({ wordId: it.id, lang, level: lv, stack, word: it.w, result, flipped, ts: new Date().toISOString(),
-      ms: Math.round(performance.now() - shownAt), sessionId, appVersion: APP_VERSION });
+      ms: Math.round(performance.now() - shownAt), sessionId, mode, appVersion: APP_VERSION });
     eid.catch(e => console.error(e));
     history.push({ i, result, eid });
     i++;
-    setTimeout(() => { el.remove(); busy = false; show(); }, 260);
+    setTimeout(() => { el.remove(); busy = false; show(); }, 240);
   }
   async function undo() {
     if (busy || !history.length) return; busy = true; syncUndo();
@@ -287,10 +275,10 @@ async function session(lang, lv, stack) {
       if (!down) return; dx = e.clientX - sx; dy = e.clientY - sy;
       if (Math.abs(dx) > 6 || Math.abs(dy) > 6) moved = true;
       if (!moved) return;
-      el.style.transform = REDUCED.matches ? `translate(${dx}px, 0)` : `translate(${dx}px, ${dy * 0.3}px) rotate(${dx / 18}deg)`;
-      const py = Math.max(0, Math.min(1, dx / 100)), pn = Math.max(0, Math.min(1, -dx / 100));
-      yes.style.opacity = py; no.style.opacity = pn; wy.style.opacity = py * 0.9; wn.style.opacity = pn * 0.9;
-      if (nxt) nxt.style.transform = `scale(${0.94 + Math.min(Math.abs(dx) / 2000, 0.06)}) translateY(${14 - Math.min(Math.abs(dx) / 20, 14)}px)`;
+      el.style.transform = REDUCED.matches ? `translate(${dx}px, 0)` : `translate(${dx}px, ${dy * 0.3}px) rotate(${dx / 22}deg)`;
+      const py = Math.max(0, Math.min(1, dx / 90)), pn = Math.max(0, Math.min(1, -dx / 90));
+      yes.style.opacity = py; no.style.opacity = pn; wy.style.opacity = py; wn.style.opacity = pn;
+      if (nxt) nxt.style.transform = `translate(${10 - Math.min(Math.abs(dx) / 10, 10)}px, ${10 - Math.min(Math.abs(dx) / 10, 10)}px)`;
     });
     const end = () => {
       if (!down) return; down = false; el.classList.remove('dragging');
@@ -301,79 +289,140 @@ async function session(lang, lv, stack) {
         flip(); return;
       }
       if (Math.abs(dx) > thr || (v > 0.6 && Math.abs(dx) > 40)) return decide(dx > 0 ? 'knew' : 'didnt', dy * 0.3);
-      el.style.transition = REDUCED.matches ? 'none' : 'transform .38s cubic-bezier(.2,.9,.3,1.3)'; el.style.transform = ''; yes.style.opacity = no.style.opacity = wy.style.opacity = wn.style.opacity = 0;
+      el.style.transition = REDUCED.matches ? 'none' : 'transform .3s cubic-bezier(.2,.9,.3,1.2)'; el.style.transform = ''; yes.style.opacity = no.style.opacity = wy.style.opacity = wn.style.opacity = 0;
       if (nxt) nxt.style.transform = '';
     };
     el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
   }
-  const onKey = e => {   // desktop shortcuts: → knew, ← didn't, space/enter flip, Backspace/Ctrl+Z undo
+  const onKey = e => {   // desktop shortcuts: → knew, ← again, space/enter flip, Backspace/Ctrl+Z undo
+    if (e.target.closest && e.target.closest('button, a')) return;
     if (e.key === 'ArrowRight') decide('knew'); else if (e.key === 'ArrowLeft') decide('didnt');
     else if ((e.key === ' ' || e.key === 'Enter') && !finished) { e.preventDefault(); cur && flip(); }
     else if (e.key === 'Backspace' || (e.key === 'z' && (e.ctrlKey || e.metaKey))) { e.preventDefault(); undo(); }
   };
   const onResize = () => { fitWord(cur); fitWord(nxt); };
-  document.addEventListener('keydown', onKey); window.addEventListener('resize', onResize); document.fonts.addEventListener('loadingdone', onResize);
-  cleanup = () => { document.removeEventListener('keydown', onKey); window.removeEventListener('resize', onResize); document.fonts.removeEventListener('loadingdone', onResize); };
+  document.addEventListener('keydown', onKey); window.addEventListener('resize', onResize);
+  cleanup = () => { document.removeEventListener('keydown', onKey); window.removeEventListener('resize', onResize); };
+
   function finish() {
-    finished = true; cur = nxt = null;   // the summary keeps ↶ (and Backspace) so the last card can still be undone
-    const total = knew + didnt;
+    finished = true; cur = nxt = null;   // the results keep ↶ (and Backspace) so the last card can still be undone
     syncUndo();
-    const pct = total ? knew / total : 0, C = 2 * Math.PI * 52;
-    const ring = h('div', { class: 'ring' }); ring.innerHTML = `<svg viewBox="0 0 120 120" aria-hidden="true"><circle class="track" cx="60" cy="60" r="52" fill="none" stroke-width="10"/><circle class="val" cx="60" cy="60" r="52" fill="none" stroke-width="10" stroke-dasharray="${C}" stroke-dashoffset="${C}"/></svg>`;
-    ring.append(h('div', { class: 'big' }, total ? `${Math.round(100 * pct)}%` : '—'));
-    $view.replaceChildren(h('div', { class: 'summary', 'data-test': 'summary' }, ring,
-      h('h2', {}, 'Deck complete'),
-      h('p', { class: 'sub' }, `${total} cards reviewed`),
-      h('span', { class: 'tally' }, h('b', { class: 'k' }, `✓ ${knew} knew`), ' ', h('b', { class: 'd' }, `✗ ${didnt} again`)),
-      h('div', { class: 'btns' },
-        h('button', { class: 'btn primary', onclick: render }, icon('again'), 'Practice again'),
-        h('a', { class: 'btn ghost', href: `#/fc/${lang}/${lv}` }, 'Back to stacks'))));
-    requestAnimationFrame(() => requestAnimationFrame(() => { const v = ring.querySelector('.val'); if (v) v.style.strokeDashoffset = String(C * (1 - pct)); }));
+    // what this run changed: each word's state before the run vs. its last answer in the run
+    const after = {};
+    for (const x of history) after[deck[x.i].id] = x.result;
+    const learned = [], forgot = [], missed = [];
+    for (const it of deck) {
+      const was = wordState(stats[it.id]), now = after[it.id];
+      if (now === 'knew' && was !== 'known') learned.push(it);
+      if (now === 'didnt') { missed.push(it); if (was === 'known') forgot.push(it); }
+    }
+    const total = pack.items.length, k0 = before.known, k1 = k0 + learned.length - forgot.length, n = knew + didnt;
+    const p0 = pct(k0, total), p1 = pct(k1, total);
+    const milestone = [25, 50, 75].filter(m => p0 < m && p1 >= m).pop();
+    const deckDone = k1 === total, justDone = deckDone && k0 < total;
+    const chips = (list, cls) => h('ul', { class: `chips ${cls}` }, list.map(it => h('li', { lang }, it.a ? `${it.a} ` : '', it.d || it.w)));
+    const again = () => { if (location.hash === `${deckHref}/${mode}`) render(); else location.hash = `${deckHref}/${mode}`; };
+    const retry = () => { retryIds = missed.map(it => it.id); if (location.hash === `${deckHref}/retry`) render(); else location.hash = `${deckHref}/retry`; };
+    const bar = h('div', { class: 'meter lg delta', role: 'img', 'aria-label': `Deck ${p0}% to ${p1}% known` }, h('i', { class: 'known', style: `width:${100 * k0 / total}%` }));
+    const res = h('div', { class: 'results', 'data-test': 'summary' },
+      h('p', { class: 'kicker' }, deckDone ? 'Deck complete' : 'Run complete'),
+      h('div', { class: 'score' }, h('b', { 'data-test': 'score' }, `${knew}`), h('span', {}, `/ ${n}`)),
+      h('p', { class: 'score-sub' }, n ? `${Math.round(100 * knew / n)}% knew` : '—'),
+      h('div', { class: 'deltas' },
+        h('div', { class: 'delta-box good', 'data-test': 'learned' }, h('b', {}, `+${learned.length}`), h('span', {}, 'learned')),
+        h('div', { class: 'delta-box bad', 'data-test': 'forgot' }, h('b', {}, `${forgot.length ? '−' : ''}${forgot.length}`), h('span', {}, 'forgotten'))),
+      h('div', { class: 'deck-progress' }, h('div', { class: 'dp-head' }, h('span', {}, deckName({ lang, stack })), h('b', { 'data-test': 'deck-delta' }, `${p0}% → ${p1}%`)), bar,
+        milestone ? h('p', { class: 'milestone', 'data-test': 'milestone' }, `▲ Passed ${milestone}% of the deck`) : null),
+      learned.length ? [h('h3', { class: 'label' }, 'Learned'), chips(learned, 'good')] : null,
+      missed.length ? [h('h3', { class: 'label' }, 'Still to learn'), chips(missed, 'bad')] : null,
+      h('div', { class: 'actions' },
+        missed.length ? h('button', { class: 'btn primary', 'data-test': 'retry', onclick: retry }, icon('play'), 'Retry missed', h('small', {}, `· ${missed.length}`)) : null,
+        h('button', { class: `btn ${missed.length ? '' : 'primary'}`, 'data-test': 'again', onclick: again }, icon('play'), 'Another run'),
+        h('a', { class: 'btn ghost', href: deckHref, 'data-test': 'to-deck' }, 'Back to deck')));
+    $view.replaceChildren(res);
+    window.scrollTo(0, 0);
+    requestAnimationFrame(() => requestAnimationFrame(() => { bar.firstChild.style.width = `${100 * k1 / total}%`; }));
+    if (justDone) celebrate(total);
+    else if (milestone) buzz([20, 60, 20]);
+  }
+  function celebrate(total) {
+    buzz([40, 80, 40, 80, 120]);
+    const ov = h('div', { class: `complete-ov lang-${lang}`, role: 'dialog', 'aria-label': 'Deck complete', 'data-test': 'deck-complete-overlay' },
+      h('div', { class: 'blocks', 'aria-hidden': 'true' }, Array.from({ length: 14 }, (_, k) => h('i', {
+        style: `left:${k * 7.2}%;width:${24 + k % 4 * 14}px;height:${24 + k % 3 * 18}px;--rot:${(k % 5 - 2) * 14}deg;--fall:${40 + k % 4 * 6}dvh;animation-delay:${k * 70}ms` }))),
+      h('p', { class: 'kicker' }, `${LANGS[lang].name} · ${lv}`),
+      h('h2', {}, 'Deck', h('br'), 'complete'),
+      h('p', { class: 'ov-sub' }, `All ${total} ${STACKS[stack].toLowerCase()} known.`),
+      h('button', { class: 'btn', 'data-test': 'ov-close', onclick: () => ov.remove() }, 'Continue', icon('arrow')));
+    $view.append(ov);
   }
   show();
 }
 
-// ---------------- stats / settings
+// ---------------- progress: known words over time, streaks, runs, backup
 function download(name, text, type) {
   const url = URL.createObjectURL(new Blob([text], { type }));
   const a = h('a', { href: url, download: name }); document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-const csvCell = v => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-const toCSV = (rows, cols) => [cols.join(','), ...rows.map(r => cols.map(c => csvCell(r[c])).join(','))].join('\n');
-async function statsScreen() {
-  setTitle('Stats & settings', '#/');
-  const [words, nEv, idx] = [await allWords(), await countEvents(), await getIndex()];
-  const tbl = h('table', {}, h('tr', {}, h('th', {}, 'Stack'), h('th', {}, 'Cards'), h('th', {}, 'Seen'), h('th', {}, 'Known'), h('th', {}, 'Accuracy')));
-  for (const p of idx.packs) {
-    const ws = words.filter(w => w.pack === `${p.lang}-${p.level}-${p.stack}`);
-    const r = ws.reduce((a, w) => a + w.right, 0), s = ws.reduce((a, w) => a + w.shown, 0);
-    tbl.append(h('tr', {}, h('td', {}, `${LANGS[p.lang].name} ${p.level} ${STACKS[p.stack].name}`), h('td', {}, p.count), h('td', {}, ws.length),
-      h('td', {}, ws.filter(w => w.lastResult === 'knew').length), h('td', {}, s ? `${Math.round(100 * r / s)}%` : '—')));
-  }
-  const stamp = new Date().toISOString().slice(0, 10);
-  const seg = h('div', { class: 'seg', role: 'group', 'aria-label': 'Theme' });
-  const drawSeg = () => seg.replaceChildren(...[['dark', 'moon', 'Dark'], ['light', 'sun', 'Light'], ['system', 'auto', 'System']].map(([k, ic, label]) =>
-    h('button', { 'aria-pressed': String(getTheme() === k), 'data-test': `theme-${k}`, onclick: () => { localStorage.setItem(THEME_KEY, k); applyTheme(); drawSeg(); } }, icon(ic), label)));
-  drawSeg();
-  $view.append(
-    h('div', { class: 'panel' }, h('h2', {}, 'Progress'), h('div', { class: 'tablewrap' }, tbl), h('p', { class: 'hint', 'data-test': 'event-count' }, `${nEv.live} review events stored on this device${nEv.undone ? ` (+${nEv.undone} undone, excluded)` : ''}`)),
-    h('div', { class: 'panel' }, h('h2', {}, 'Appearance'), seg),
-    h('div', { class: 'panel' }, h('h2', {}, 'Export'),
-      h('div', { class: 'row' },
-        h('button', { class: 'btn primary', 'data-test': 'export-json', onclick: async () => download(`flashcards-${stamp}.json`, JSON.stringify({ app: 'langapp', version: APP_VERSION, exportedAt: new Date().toISOString(), events: await allEvents(), words: await allWords() }, null, 1), 'application/json') }, icon('download'), 'Export JSON'),
-        h('button', { class: 'btn ghost', 'data-test': 'export-csv', onclick: async () => download(`flashcards-events-${stamp}.csv`, toCSV(await allEvents(), ['eid', 'ts', 'wordId', 'word', 'lang', 'level', 'stack', 'result', 'flipped', 'ms', 'sessionId', 'appVersion', 'undone', 'undoneAt']), 'text/csv') }, 'Events CSV'),
-        h('button', { class: 'btn ghost', 'data-test': 'export-words-csv', onclick: async () => download(`flashcards-words-${stamp}.csv`, toCSV(await allWords(), ['id', 'lang', 'level', 'stack', 'shown', 'right', 'left', 'flips', 'firstSeen', 'lastSeen', 'lastResult']), 'text/csv') }, 'Words CSV'))),
-    h('div', { class: 'panel' }, h('h2', {}, 'App'),
-      h('div', { class: 'row' },
-        h('button', { class: 'btn ghost', onclick: () => checkForUpdate(true) }, icon('refresh'), 'Check for updates'),
-        h('button', { class: 'btn no', onclick: async () => { if (confirm('Delete all review history on this device?')) { await clearAll(); render(); } } }, icon('trash'), 'Reset stats')),
-      h('p', { class: 'hint' }, `Version ${APP_VERSION}`)));
+function chart(timeline) {
+  const W = 300, H = 120, n = timeline.length, max = Math.max(10, ...timeline.map(d => d.known)), bw = W / n;
+  const bars = timeline.map((d, k) => `<rect x="${(k * bw + 1).toFixed(1)}" y="${(H - H * d.known / max).toFixed(1)}" width="${(bw - 2).toFixed(1)}" height="${(H * d.known / max).toFixed(1)}"${k === n - 1 ? ' class="now"' : ''}/>`).join('');
+  const box = h('figure', { class: 'chart', 'data-test': 'chart' });
+  const first = timeline[0].known, last = timeline[n - 1].known;
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Known words over the last ${n} days: ${first} to ${last}">${bars}</svg>`;
+  box.append(h('figcaption', {}, h('span', {}, `${n} days ago`), h('span', {}, `max ${max}`), h('span', {}, 'today')));
+  return box;
 }
-async function about() {
+const fmtDay = ts => new Date(ts).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+async function progressScreen(my) {
+  setTitle('Progress', '#/');
+  const [idx, words, evs] = [await getIndex(), await allWords(), await allEvents()];
+  if (stale(my)) return;
+  const pr = progress(evs, 30), total = idx.packs.reduce((a, p) => a + p.count, 0), kAll = words.filter(w => wordState(w) === 'known').length;
+  const rows = idx.packs.map(p => {
+    const ws = words.filter(w => w.pack === packKey(p)), k = ws.filter(w => wordState(w) === 'known').length, u = ws.length - k;
+    return h('a', { class: `prow lang-${p.lang}`, href: `#/deck/${packKey(p)}` }, h('span', { class: 'code' }, LANGS[p.lang].code),
+      h('span', { class: 'nm' }, STACKS[p.stack]), meter({ known: k, unknown: u, new: p.count - ws.length }, p.count), h('b', {}, `${pct(k, p.count)}%`));
+  });
+  const runs = pr.runs.slice(0, 12).map(r => h('li', { class: `lang-${r.lang}` }, h('span', { class: 'code' }, LANGS[r.lang] ? LANGS[r.lang].code : r.lang),
+    h('span', { class: 'rd' }, `${fmtDay(r.start)} · ${STACKS[r.stack] || r.stack}`), h('span', { class: 'rs' }, `${r.knew}/${r.n}`),
+    h('b', { class: r.learned ? 'up' : '' }, `+${r.learned}`)));
+  const stamp = new Date().toISOString().slice(0, 10);
+  const file = h('input', { type: 'file', accept: 'application/json,.json', hidden: true, 'data-test': 'import-file', onchange: async () => {
+    const f = file.files[0]; file.value = ''; if (!f) return;
+    try {
+      const data = JSON.parse(await f.text());
+      const n = (data.events || []).length;
+      if (!confirm(`Replace all progress on this device with this backup (${n} reviews)?`)) return;
+      await importBackup(data); toast(`Imported ${n} reviews`); render();
+    } catch (e) { toast(e.message.includes('backup') ? e.message : 'Could not read that file'); }
+  } });
+  $view.append(
+    h('section', { class: 'hero-num' }, h('b', { 'data-test': 'total-known' }, String(kAll)), h('span', {}, `of ${total} words known`),
+      meter({ known: kAll, unknown: words.length - kAll, new: total - words.length }, total, 'lg')),
+    h('div', { class: 'stats' }, stat(pr.streak, 'day streak', 'streak'), stat(pr.best, 'best streak', 'best'),
+      stat(pr.accuracy7 == null ? '—' : `${Math.round(100 * pr.accuracy7)}%`, 'knew, 7 days', 'acc7')),
+    h('h3', { class: 'label' }, 'Known words · 30 days'), chart(pr.timeline),
+    h('h3', { class: 'label' }, 'Decks'), h('div', { class: 'prows' }, rows),
+    h('h3', { class: 'label' }, `Runs · ${pr.runs.length}`),
+    runs.length ? h('ol', { class: 'runs', 'data-test': 'runs' }, runs) : h('p', { class: 'empty' }, 'No runs yet.'),
+    h('h3', { class: 'label' }, 'Backup'),
+    h('p', { class: 'note' }, `${pr.total} reviews stored on this device. Export a backup now and then; import restores it on any device.`),
+    h('div', { class: 'actions row' },
+      h('button', { class: 'btn', 'data-test': 'export-json', onclick: async () => download(`langcards-${stamp}.json`, JSON.stringify({ app: 'langapp', version: APP_VERSION, exportedAt: new Date().toISOString(), events: await allEvents(), words: await allWords() }, null, 1), 'application/json') }, icon('download'), 'Export'),
+      h('button', { class: 'btn', 'data-test': 'import-json', onclick: () => file.click() }, icon('upload'), 'Import'), file),
+    h('div', { class: 'actions row' },
+      h('button', { class: 'btn', onclick: () => checkForUpdate(true) }, icon('refresh'), 'Updates'),
+      h('button', { class: 'btn danger', onclick: async () => { if (confirm('Delete all review history on this device?')) { await clearAll(); render(); } } }, icon('trash'), 'Reset')),
+    h('p', { class: 'hint' }, `v${APP_VERSION}`));
+}
+
+async function about(my) {
   setTitle('About & credits', '#/');
   const credits = await (await fetch('data/credits.json')).json();
   const idx = await getIndex();
+  if (stale(my)) return;
   $view.append(h('div', { class: 'panel credits' }, h('h2', {}, 'About'),
       h('p', {}, 'Every word, definition, translation and example sentence in this app comes from the open datasets below. Nothing was written by hand. Cards were picked automatically from the CEFR A1 lists; translations are limited to direct or multi-source links. Example sentences are chosen automatically from Tatoeba (short, simple sentences with Spanish/English translations); Wiktionary examples are used only where Tatoeba has none. The Tatoeba ID and author of every example sentence are listed below.'),
       h('p', {}, `Packs: ${idx.packs.map(p => `${p.file} (${p.count})`).join(', ')}.`),
@@ -387,7 +436,7 @@ async function about() {
 function sentenceCredits(idx) {
   // CC BY 2.0 FR attribution for every Tatoeba sentence used on the cards (built when opened)
   return idx.packs.map(p => {
-    const d = h('details', { 'data-test': `credits-${p.file}` }, h('summary', {}, `Sentences in ${LANGS[p.lang].name} ${p.level} ${STACKS[p.stack].name.toLowerCase()}`));
+    const d = h('details', { 'data-test': `credits-${p.file}` }, h('summary', {}, `Sentences in ${LANGS[p.lang].name} ${p.level} ${STACKS[p.stack].toLowerCase()}`));
     d.addEventListener('toggle', async () => {
       if (!d.open || d.dataset.done) return; d.dataset.done = '1';
       const rows = [];
@@ -419,7 +468,7 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (!hadController) return;                       // first install, nothing to announce
     sessionStorage.setItem('updatedFrom', APP_VERSION);
-    if (!location.hash.startsWith('#/fc/') || location.hash.split('/').length < 5) location.reload();   // not mid-session: reload now
+    if (!/^#\/deck\/[^/]+\/\w+$/.test(location.hash)) location.reload();   // not mid-run: reload now
     else toast('A new version is ready', { label: 'Reload', fn: () => location.reload() }, 0);
   });
   window.addEventListener('load', async () => {
