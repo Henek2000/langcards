@@ -116,6 +116,7 @@ def build(lang, stack):
             gender = {'masculine': 'm', 'feminine': 'f', 'neuter': 'n'}.get(g or '', 'mf' if g and ',' in g else None)
         art = None
         if lang == 'fr' and stack == 'noun' and gender in ('m', 'f'): art = 'un' if gender == 'm' else 'une'
+        if lang == 'nl' and stack == 'noun' and gender in ('m', 'f', 'mf', 'n'): art = 'het' if gender == 'n' else 'de'
         tx = TATO[lang].pick(word, stack, cd['lemma_id'], 3, es, en)
         for e in tx: e.pop('h', None)
         ex = None if tx else pick_example(cd['lemma_id'])   # Wiktionary example only as fallback

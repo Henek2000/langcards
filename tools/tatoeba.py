@@ -3,7 +3,7 @@ weekly exports (CC BY 2.0 FR); this module only searches, scores and selects the
 import bz2, re, unicodedata, sqlite3
 from collections import Counter, defaultdict
 TDIR = '/workspace/langdb/tatoeba'
-L3 = {'fr': 'fra', 'ru': 'rus'}
+L3 = {'fr': 'fra', 'ru': 'rus', 'nl': 'nld'}
 MAX_TOK, IDEAL_TOK, TOP_FREQ = 12, 8, 1500
 
 # form_of rows that are derivations, not inflections (подруга < друг, ручка < рука, учиться < учить)

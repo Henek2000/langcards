@@ -4,9 +4,10 @@ import { progress } from './progress.js';
 import { APP_VERSION } from './version.js';
 import { icon } from './icons.js';
 
-const LANGS = { fr: { name: 'French', code: 'FR' }, ru: { name: 'Russian', code: 'RU' } };
+const LANGS = { fr: { name: 'French', code: 'FR' }, ru: { name: 'Russian', code: 'RU' }, nl: { name: 'Dutch', code: 'NL' } };
 const STACKS = { noun: 'Nouns', verb: 'Verbs' };
-const GENDER = { fr: { m: 'masculine', f: 'feminine', mf: 'masc./fem.' }, ru: { m: 'masculine', f: 'feminine', n: 'neuter', mf: 'common' } };
+const GENDER = { fr: { m: 'masculine', f: 'feminine', mf: 'masc./fem.' }, ru: { m: 'masculine', f: 'feminine', n: 'neuter', mf: 'common' },
+  nl: { m: 'masculine', f: 'feminine', n: 'neuter', mf: 'common' } };
 const ASPECT = { impf: 'imperfective', pf: 'perfective', 'impf/pf': 'impf. & pf.' };
 const MODES = { run: 'Run', unknown: 'Unknown only', retry: 'Retry missed' };
 const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -37,8 +38,8 @@ const buzz = p => { try { navigator.vibrate && navigator.vibrate(p); } catch { /
 // so two screens never stack up and a stale session never registers key handlers.
 const routes = [
   [/^#?\/?$/, home],
-  [/^#\/deck\/(fr|ru)-(A1)-(noun|verb)$/, deckScreen],
-  [/^#\/deck\/(fr|ru)-(A1)-(noun|verb)\/(run|unknown|retry)$/, session],
+  [/^#\/deck\/(fr|ru|nl)-(A1)-(noun|verb)$/, deckScreen],
+  [/^#\/deck\/(fr|ru|nl)-(A1)-(noun|verb)\/(run|unknown|retry)$/, session],
   [/^#\/progress$/, progressScreen],
   [/^#\/about$/, about],
 ];
@@ -50,7 +51,7 @@ async function render() {
   let hash = location.hash || '#/';
   const old = hash.match(/^#\/fc\/(fr|ru)\/(A1)\/(noun|verb)$/);            // links and bookmarks from v0.4
   if (old) { location.replace(`#/deck/${old[1]}-${old[2]}-${old[3]}`); return; }
-  const lang = (hash.match(/^#\/deck\/(fr|ru)/) || [])[1];
+  const lang = (hash.match(/^#\/deck\/(fr|ru|nl)/) || [])[1];
   document.body.className = [lang && `lang-${lang}`, routes[0][0].test(hash) && 'route-home'].filter(Boolean).join(' ');
   for (const [re, fn] of routes) {
     const m = hash.match(re);
@@ -90,7 +91,7 @@ async function home(my) {
       h('span', { class: 'deck-sub' }, done ? '■ Complete' : `${c.known} known · ${c.unknown} unknown · ${c.new} new`)));
   }
   $view.append(
-    h('header', { class: 'masthead' }, h('h2', {}, 'Lang', h('br'), 'cards'), h('p', {}, 'French & Russian A1 · learn the words')),
+    h('header', { class: 'masthead' }, h('h2', {}, 'Lang', h('br'), 'cards'), h('p', {}, 'French, Russian & Dutch A1 · learn the words')),
     h('div', { class: 'stats' }, stat(words.filter(w => wordState(w) === 'known').length, `of ${total} known`, 'home-known'), stat(pr.streak, 'day streak', 'home-streak'),
       stat(pr.todayReviews, 'cards today', 'home-today')),
     h('h3', { class: 'label' }, 'Decks'), decks,

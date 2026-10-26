@@ -1,7 +1,7 @@
 {
-  "name": "Langcards: French & Russian",
+  "name": "Langcards: French, Russian & Dutch",
   "short_name": "Langcards",
-  "description": "Learn French and Russian A1 words with flashcards, practice runs and progress tracking.",
+  "description": "Learn French, Russian and Dutch A1 words with flashcards, practice runs and progress tracking.",
   "id": "./",
   "start_url": "./",
   "scope": "./",
