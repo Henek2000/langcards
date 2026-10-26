@@ -22,7 +22,8 @@ lock = json.loads(LOCK.read_text()) if LOCK.exists() else {}
 if lock.get('version') == version and lock.get('hash') != digest and '--force' not in sys.argv:
     sys.exit(f'Shipped files changed but VERSION is still {version}: bump VERSION (or pass --force)')
 (ROOT / 'js' / 'version.js').write_text(f"export const APP_VERSION = '{version}';\n")
-assets = ['./'] + [str(f.relative_to(ROOT)) for f in files] + ['js/version.js']
+# iOS launch screens are fetched by iOS only at add-to-home-screen time: hash them, but don't make every client precache ~1 MB
+assets = ['./'] + [str(f.relative_to(ROOT)) for f in files if not f.name.startswith('lc-splash-')] + ['js/version.js']
 sw = (ROOT / 'tools' / 'sw.template.js').read_text().replace('__VERSION__', version).replace('__BUILD__', digest) \
     .replace('__ASSETS__', json.dumps(sorted(set(assets)), indent=1))
 (ROOT / 'sw.js').write_text(sw)

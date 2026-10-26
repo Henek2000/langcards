@@ -254,6 +254,8 @@ if (process.env.OLD_BASE) {
   const sw = await page.evaluate(async () => (await fetch('sw.js')).text());
   const ver = (await page.evaluate(async () => (await fetch('js/version.js')).text())).match(/'(.+)'/)[1];
   ok(`service worker cache bumped (langapp-${ver}), precaches fonts and new icons only`, sw.includes(`const VERSION = '${ver}'`) && ver !== '0.3.0' && sw.includes('fonts/unbounded-cyrillic.woff2') && sw.includes('icons/lc-icon-512.png') && !/icons\/(icon-192|icon-512|maskable-512|apple-touch-icon|favicon-32)\.png/.test(sw));
+  const sp = await page.evaluate(async () => Promise.all([...document.querySelectorAll('link[rel=apple-touch-startup-image]')].map(async l => [l.getAttribute('href'), (await fetch(l.href)).status, await new Promise(r => { const im = new Image(); im.onload = () => r(im.naturalWidth + 'x' + im.naturalHeight); im.onerror = () => r('err'); im.src = l.href; })])));
+  ok('iOS launch screens (new lc-splash-* files) load at their stated size, not precached', sp.length >= 5 && sp.every(([h, c, d]) => c === 200 && h.includes('lc-splash-' + d)) && !sw.includes('lc-splash'), JSON.stringify(sp));
   await ctx.close();
 }
 await browser.close();
