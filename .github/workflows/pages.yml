@@ -22,10 +22,16 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - name: Check the version stamp is current
+        run: |
+          # sw.js is cache-first: if it isn't re-stamped, installed apps never pick up changed files
+          python3 tools/stamp.py
+          git diff --exit-code -- sw.js js/version.js tools/stamp.lock.json \
+            || { echo '::error::sw.js / js/version.js are stale: bump VERSION and run python3 tools/stamp.py'; exit 1; }
       - name: Assemble static site (only shipped files)
         run: |
           mkdir -p _site
-          cp -r index.html manifest.webmanifest sw.js .nojekyll css js data icons fonts LICENSE _site/
+          cp -r index.html manifest.webmanifest sw.js .nojekyll css js data icons LICENSE _site/
           # sanity: every precached asset in sw.js must exist in the artifact
           python3 - <<'PY'
           import json, re, pathlib

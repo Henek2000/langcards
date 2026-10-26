@@ -5,7 +5,7 @@ The content hash of all shipped files is kept only as a comment in sw.js and in 
 if shipped files changed but VERSION did not, stamping fails so every release gets a new version."""
 import hashlib, json, pathlib, re, sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-SHIP = ['index.html', 'manifest.webmanifest', 'css', 'js', 'data', 'icons', 'fonts']
+SHIP = ['index.html', 'manifest.webmanifest', 'css', 'js', 'data', 'icons']
 LOCK = ROOT / 'tools' / 'stamp.lock.json'
 version = (ROOT / 'VERSION').read_text().strip()
 if not re.fullmatch(r'(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)', version):

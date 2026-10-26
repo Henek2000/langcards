@@ -1,18 +1,29 @@
-# Flashcards: French & Russian (PWA)
+# Langcards: French & Russian (PWA)
 
 Live at https://henek2000.github.io/langcards/. It is deployed by `.github/workflows/pages.yml` on every push to `main`.
 
-This is an installable, offline-first flashcard app for learning French and Russian A1 vocabulary, with Spanish and English translations. It consists of static files only, so it can be hosted on GitHub Pages under any subpath (all paths are relative).
+This is an installable, offline-first flashcard app for learning French and Russian A1 vocabulary, with Spanish and English translations. Since v0.5 it has a Brutalist look (system grotesk + mono type, thick rules, hard shadows) that follows the phone's light/dark setting. It consists of static files only, so it can be hosted on GitHub Pages under any subpath (all paths are relative).
 
 ## Use
-- **Menu → Flashcards → language → level → stack (Nouns / Verbs).**
-- **Home shortcuts:** tap ★ next to a stack to pin it to the home screen (tap again to unpin); one tap on the tile starts that deck. Long-press a tile to edit, × removes it, ✓ finishes. The + tile opens the deck picker. Shortcuts are deck descriptors (`{kind:'stack', lang, level, stack}`) saved in `localStorage` (`langapp.shortcuts.v1`), so they survive updates; future topic decks only need a new `kind` in `deckInfo()` (`js/app.js`).
+- **Home** lists the four decks (French/Russian × nouns/verbs) with how many words are known, unknown and new, plus your total known words, day streak and cards reviewed today.
+- **Word states:** a word is *new* until you answer it, *known* when your last answer was "knew" and *unknown* when it was "again". They are derived from the review history, so nothing extra is stored.
+- **Deck screen:** percent known, a known/unknown/new bar, and the word list by state. **Start run** plays 20 cards: up to 12 unknown words, then new words in pack order, then more unknown, then the known words you saw longest ago. **Unknown only** plays up to 20 unknown words. A finished deck offers a **Review run**.
 - **Card front:** only the word, with its article for French nouns (un/une). Gender, aspect, translations, definition and an example sentence are on the back.
-- **Flip a card:** tap it. **Answer:** swipe right if you knew it, left if you didn't. There are no on-screen answer buttons; on desktop the keys still work (Space/Enter flip, → knew, ← didn't).
-- **Undo:** the ↶ Undo button in the top bar (or Backspace / Ctrl+Z) brings back the previous card. The review event is kept but flagged `undone`, it is excluded from every statistic, and that word's totals are recomputed from its remaining events.
-- **Examples:** the back shows the best Tatoeba sentence with its Spanish and English translations; tap the example to cycle through up to 3. Source lines are not shown on the card; the ID and author of every Tatoeba sentence are listed on the About screen.
-- **Card order:** a weighted shuffle. Unseen cards and cards you missed last time come first.
-- **Stats:** stored on the device in IndexedDB. Every review is saved as an event, and each word keeps running totals. Stats & settings can export them as JSON, events CSV or words CSV.
+- **Flip a card:** tap it. **Answer:** swipe right if you knew it, left if you didn't. On desktop: Space/Enter flip, → knew, ← again. Screen readers get hidden Show answer / Again / Knew it buttons.
+- **Undo:** the ↶ Undo button in the top bar (or Backspace / Ctrl+Z) brings back the previous card, also from the results screen. The review event is kept but flagged `undone`, it is excluded from every statistic, and that word's totals are recomputed from its remaining events.
+- **Run results:** score, words learned (not known before, known now) and forgotten, the deck's percent before → after, a note when you pass 25/50/75%, and **Retry missed**. When the last word of a deck becomes known, a full-screen **Deck complete** appears.
+- **Progress:** total known words, current and best day streak, accuracy over 7 days, known words over the last 30 days, per-deck bars and the run history (every `sessionId` is a run; v0.4 sessions show up too).
+- **Backup:** Progress → Export saves every review as JSON; Import replaces this device's history with a backup and rebuilds the word totals. The app asks the browser for persistent storage on the first review so Safari doesn't evict it.
+- **Examples:** tap the example on the back to cycle through up to 3 Tatoeba sentences. The ID and author of every sentence are listed on the About screen.
+- Links from v0.4 (`#/fc/fr/A1/noun`) open the matching deck.
+
+## Tests
+`test/app.mjs` drives the app in a 390×844 touch viewport with Playwright: v0.4 history carries over, runs, swipes, undo, results, retry, deck completion, progress, export/import, the fast-navigation race and overflow on every screen. Screenshots go to `shots/`.
+```
+bash test/assemble.sh . /tmp/site/langcards && (cd /tmp/site && python3 -m http.server 8081 &)
+node test/app.mjs     # needs playwright-core or playwright; CHROME=/path/to/chrome, BASE, SHOTS override defaults
+```
+Icons: `python3 tools/make_icons.py` (SVGs) then `node tools/render_icons.mjs` (PNGs + iOS launch screens).
 
 ## Data
 `data/*.json` is generated by `tools/build_packs.py` from `langdb.sqlite`. Every word, gloss and translation comes from Wiktionary and the CEFR lists (FLELex, SMARTool, KELLY). Example sentences come verbatim from the [Tatoeba](https://tatoeba.org) weekly exports (`tools/tatoeba.py`): sentences containing the word or one of its inflected forms (langdb `forms` table; Russian matched without stress marks, case-insensitive, on token boundaries), ranked by how many words fall outside the A1/A2 lists and the 1,500 most frequent Tatoeba tokens, then by having both a direct Spanish and English translation, then by length (ideally ≤ 8 words). Homographs of other A1/A2 words are skipped unless the context disambiguates. Up to 3 per card are stored with their Tatoeba sentence IDs; the Wiktionary example is used only when Tatoeba has none. The scripts only select and format. Credits are in `data/credits.json` and on the About screen. `tools/pack_report.json` lists pack sizes and dropped items.
@@ -21,7 +32,7 @@ This is an installable, offline-first flashcard app for learning French and Russ
 1. Change the code or regenerate the packs: `python3 tools/build_packs.py /path/to/langdb.sqlite`.
 2. Bump `VERSION` (3-part semver `MAJOR.MINOR.PATCH`, e.g. `0.3.0` → `0.3.1`).
 3. Run `python3 tools/stamp.py`. It writes `js/version.js` and `sw.js` (cache `langapp-<version>` + the precache list). The content hash is kept only as a comment in `sw.js` and in `tools/stamp.lock.json`; stamping refuses to run if shipped files changed but `VERSION` did not.
-4. Commit and push. Installed apps check for a new service worker on launch, every 30 minutes and whenever the app comes back to the foreground. Any `VERSION` change produces a byte-different `sw.js`, so the browser installs it whatever the installed version is (also downgrades). The new version activates right away. On menu screens the app reloads and shows an "Updated to vX" toast; in the middle of a session it offers a Reload button instead.
+4. Commit and push. The Pages workflow re-runs `stamp.py` and fails the deploy if `sw.js`, `js/version.js` or the lock file would change, so a forgotten stamp never ships files installed apps can't see. Installed apps check for a new service worker on launch, every 30 minutes and whenever the app comes back to the foreground. Any `VERSION` change produces a byte-different `sw.js`, so the browser installs it whatever the installed version is (also downgrades). The new version activates right away. On menu screens the app reloads and shows an "Updated to vX" toast; in the middle of a session it offers a Reload button instead.
 
 ## Data credits and licences
 | Source | Used for | Licence |
